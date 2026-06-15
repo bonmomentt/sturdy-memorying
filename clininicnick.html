@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🍀 정신건강의학과 의원 관리장</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍀</text></svg>"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif; background:#F4F6FA; }
+
+/* 헤더 */
+#header { background:#1C2A3A; color:white; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:1000; }
+#header h1 { font-size:16px; font-weight:700; }
+#header-sub { font-size:11px; color:#8FA3B3; margin-top:2px; }
+#view-btns { display:flex; gap:6px; }
+.view-btn { padding:6px 12px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:600; color:white; background:#2C3E50; font-family:inherit; }
+.view-btn.active { background:#4F86C6; }
+
+/* 지역 탭 */
+#region-tabs { display:flex; gap:8px; padding:10px 14px; overflow-x:auto; background:white; border-bottom:1px solid #EAEDF0; position:sticky; top:57px; z-index:999; }
+.rtab { flex-shrink:0; padding:6px 12px; border-radius:20px; border:2px solid #EAEDF0; background:white; cursor:pointer; font-size:12px; font-weight:600; color:#555; white-space:nowrap; font-family:inherit; text-align:center; }
+.rtab.active { color:white; border-color:transparent; }
+
+/* 검색 */
+#search-wrap { padding:10px 14px 8px; background:#F4F6FA; }
+#search-input { width:100%; padding:9px 14px; border-radius:10px; border:1px solid #DDE1E7; font-size:14px; outline:none; background:white; font-family:inherit; }
+#search-count { font-size:12px; color:#888; margin-top:4px; padding:0 4px; }
+
+/* 지도 */
+#map-view { display:none; }
+#map { height:calc(100vh - 160px); }
+
+/* 목록 */
+#list-view { padding:0 14px 40px; }
+#list-count { font-size:12px; color:#888; padding:6px 2px 8px; }
+.card { background:white; border-radius:12px; border:1px solid #EAEDF0; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:8px; }
+.card.open { border-color:var(--c); }
+.card-header { padding:11px 14px; cursor:pointer; display:flex; align-items:center; gap:10px; }
+.card-num { width:26px; height:26px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; }
+.card-body-wrap { flex:1; min-width:0; }
+.card-name-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.card-name { font-size:14px; font-weight:700; color:#1C2A3A; }
+.region-badge { font-size:10px; padding:1px 7px; border-radius:20px; font-weight:600; white-space:nowrap; }
+.deal-badge { font-size:10px; padding:1px 8px; border-radius:20px; font-weight:700; white-space:nowrap; border:1px solid; }
+.note-icon { font-size:11px; }
+.card-addr { font-size:11px; color:#777; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.card-arrow { color:#CCC; font-size:12px; flex-shrink:0; }
+
+/* 카드 확장 패널 */
+.card-panel { border-top:1px solid rgba(0,0,0,0.07); padding:12px 14px; }
+.panel-addr { font-size:12px; color:#555; margin-bottom:10px; line-height:1.5; }
+.section-label { font-size:11px; color:#666; font-weight:600; margin-bottom:6px; }
+.deal-row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+.deal-btn { padding:5px 16px; border-radius:20px; border:1.5px solid #D0D0D0; background:white; color:#888; font-size:12px; cursor:pointer; font-family:inherit; font-weight:400; }
+.deal-btn.active { font-weight:700; }
+.action-row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.btn-check { padding:5px 12px; border-radius:8px; border:none; cursor:pointer; font-size:12px; font-weight:600; background:#E0E0E0; color:#555; font-family:inherit; }
+.btn-check.done { background:#2E9E5B; color:white; }
+.btn-link { padding:5px 12px; border-radius:8px; font-size:12px; font-weight:600; text-decoration:none; display:inline-block; }
+.btn-kakao { background:#FEE500; color:#3C1E1E; }
+.btn-naver { background:#03C75A; color:white; }
+.btn-map-go { background:#4F86C6; color:white; }
+.note-area { width:100%; padding:8px 10px; border-radius:8px; border:1px solid #DDE1E7; font-size:12px; resize:vertical; min-height:65px; outline:none; font-family:inherit; }
+
+/* 팝업 */
+.leaflet-popup-content-wrapper { border-radius:12px; padding:0; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.18); }
+.leaflet-popup-content { margin:0; }
+.popup-inner { padding:14px 16px; min-width:240px; }
+.popup-name { font-size:14px; font-weight:700; color:#1C2A3A; margin-bottom:5px; }
+.popup-meta { display:flex; gap:5px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
+.popup-addr { font-size:11px; color:#666; line-height:1.5; margin-bottom:10px; }
+.popup-deal-row { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px; }
+.popup-deal-btn { padding:4px 11px; border-radius:20px; border:1.5px solid #D0D0D0; background:white; color:#888; font-size:11px; cursor:pointer; font-family:inherit; }
+.popup-links { display:flex; gap:6px; }
+.popup-link { padding:5px 10px; border-radius:8px; font-size:11px; font-weight:600; text-decoration:none; }
+.custom-marker { width:28px; height:28px; border-radius:50%; border:2.5px solid white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:white; box-shadow:0 2px 6px rgba(0,0,0,0.3); }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div>
+    <h1>🍀 정신건강의학과 의원 관리장</h1>
+    <div id="header-sub">총 158개 · 7개 지역</div>
+  </div>
+  <div id="view-btns" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+    <button class="view-btn active" onclick="switchView('list')">📋 목록</button>
+    <button class="view-btn" onclick="switchView('map')">🗺️ 지도</button>
+    <button class="view-btn" style="background:#16876E" onclick="exportJSON()" title="JSON 백업">💾 백업</button>
+    <button class="view-btn" style="background:#8B44C7" onclick="document.getElementById('import-input').click()" title="JSON 불러오기">📂 불러오기</button>
+    <button class="view-btn" style="background:#C47D0B" onclick="exportCSV()" title="엑셀용 CSV 내보내기">📊 CSV</button>
+    <input type="file" id="import-input" accept=".json" style="display:none" onchange="importJSON(event)"/>
+  </div>
+</div>
+
+<div id="region-tabs"></div>
+
+<div id="search-wrap">
+  <input id="search-input" placeholder="🔍  의원명 또는 주소 검색" oninput="onSearch()"/>
+  <div id="search-count"></div>
+</div>
+
+<div id="map-view">
+  <div id="map"></div>
+</div>
+
+<div id="list-view">
+  <div id="list-count"></div>
+  <div id="list-body"></div>
+</div>
+
+<script>
+// ===================== 데이터 =====================
+const REGION_COLOR = {
+  "관악구":"#3B7DD8","동작구":"#2E9E5B","서초구":"#D45C2A",
+  "수원 팔달구":"#8B44C7","수원 장안구":"#B5292A",
+  "수원 영통구":"#C47D0B","수원 권선구":"#16876E"
+};
+const REGION_BG = {
+  "관악구":"#EBF2FF","동작구":"#E8F9F0","서초구":"#FFF0E8",
+  "수원 팔달구":"#F5EEFF","수원 장안구":"#FFECEC",
+  "수원 영통구":"#FFF8E1","수원 권선구":"#E6FAF5"
+};
+// 거래/비거래 (단일 선택)
+const DEAL_MAIN = [
+  {key:"거래중",  color:"#2E9E5B", bg:"#E8F9F0"},
+  {key:"비거래처", color:"#888",    bg:"#F0F0F0"},
+];
+// 태그 (복수 선택)
+const DEAL_TAGS = [
+  {key:"타겟처", color:"#D45C2A", bg:"#FFF0E8"},
+  {key:"루틴처", color:"#3B7DD8", bg:"#EBF2FF"},
+];
+const DEAL_ALL = [...DEAL_MAIN, ...DEAL_TAGS];
+const GRADES = [
+  {key:'S', color:'#B5860A', bg:'#FFF8DC'},
+  {key:'A', color:'#8B44C7', bg:'#F5EEFF'},
+  {key:'B', color:'#2E9E5B', bg:'#E8F9F0'},
+  {key:'C', color:'#3B7DD8', bg:'#EBF2FF'},
+  {key:'D', color:'#888',    bg:'#F0F0F0'},
+  {key:'E', color:'#D45C2A', bg:'#FFF0E8'},
+];
+const REGIONS = ["관악구","동작구","서초구","수원 팔달구","수원 장안구","수원 영통구","수원 권선구"];
+
+const CLINICS = [
+  {name:"김원정신건강의학과의원",address:"경기도 수원시 팔달구 권광로 197 (인계동)",region:"수원 팔달구",lat:37.2654,lng:127.0337},
+  {name:"닥터최정신건강의학과의원",address:"경기도 수원시 팔달구 권광로 181 (인계동)",region:"수원 팔달구",lat:37.2649,lng:127.0331},
+  {name:"마마라 정신건강의학과 의원",address:"경기도 수원시 팔달구 아주로 3 (우만동)",region:"수원 팔달구",lat:37.2703,lng:127.0410},
+  {name:"미소드림정신과의원",address:"경기도 수원시 팔달구 덕영대로 923-10 (매산로1가)",region:"수원 팔달구",lat:37.2724,lng:127.0294},
+  {name:"삼성공감정신건강의학과의원",address:"경기도 수원시 팔달구 권광로 211 (인계동)",region:"수원 팔달구",lat:37.2659,lng:127.0343},
+  {name:"손정신건강의학과의원",address:"경기도 수원시 팔달구 중부대로 11 (영동)",region:"수원 팔달구",lat:37.2760,lng:127.0406},
+  {name:"수원숲정신건강의학과의원",address:"경기도 수원시 팔달구 효원로 279 (인계동)",region:"수원 팔달구",lat:37.2618,lng:127.0344},
+  {name:"수원신경정신과의원",address:"경기도 수원시 팔달구 정조로 777 (팔달로3가)",region:"수원 팔달구",lat:37.2784,lng:127.0437},
+  {name:"스테이 정신건강의학과의원",address:"경기도 수원시 팔달구 인계로 20 (매교동)",region:"수원 팔달구",lat:37.2688,lng:127.0358},
+  {name:"아름다운정신과의원",address:"경기도 수원시 팔달구 정조로801번길 3 (팔달로2가)",region:"수원 팔달구",lat:37.2790,lng:127.0443},
+  {name:"울림정신건강의학과의원",address:"경기도 수원시 팔달구 중부대로 247 (우만동)",region:"수원 팔달구",lat:37.2752,lng:127.0431},
+  {name:"윤정신건강의학과의원",address:"경기도 수원시 팔달구 중부대로 215 (우만동)",region:"수원 팔달구",lat:37.2745,lng:127.0423},
+  {name:"이용석정신건강의학과의원",address:"경기도 수원시 팔달구 권광로 208 (인계동)",region:"수원 팔달구",lat:37.2656,lng:127.0339},
+  {name:"이정식정신건강의학과의원",address:"경기도 수원시 팔달구 덕영대로 899 (매산로1가)",region:"수원 팔달구",lat:37.2719,lng:127.0289},
+  {name:"장덕환정신건강의학과의원",address:"경기도 수원시 팔달구 정조로 775 (팔달로3가)",region:"수원 팔달구",lat:37.2781,lng:127.0434},
+  {name:"정진정신건강의학과의원",address:"경기도 수원시 팔달구 인계로138번길 8 (인계동)",region:"수원 팔달구",lat:37.2638,lng:127.0333},
+  {name:"하모니정신건강의학과의원",address:"경기도 수원시 팔달구 향교로1번길 8 (매산로1가)",region:"수원 팔달구",lat:37.2726,lng:127.0300},
+  {name:"해맑은정신건강의학과의원",address:"경기도 수원시 팔달구 정조로801번길 3 (팔달로2가)",region:"수원 팔달구",lat:37.2792,lng:127.0445},
+  {name:"희망정신건강의학과의원",address:"경기도 수원시 팔달구 중부대로128번길 49 (인계동)",region:"수원 팔달구",lat:37.2670,lng:127.0356},
+  {name:"The(더)공감 정신건강의학과의원",address:"경기도 수원시 장안구 경수대로 940 (조원동)",region:"수원 장안구",lat:37.2971,lng:126.9823},
+  {name:"경기정신건강의학과의원",address:"경기도 수원시 장안구 팔달로 211 (영화동)",region:"수원 장안구",lat:37.2926,lng:127.0106},
+  {name:"기쁜마음정신건강의학과의원",address:"경기도 수원시 장안구 만석로19번길 11-3 (천천동)",region:"수원 장안구",lat:37.3020,lng:127.0050},
+  {name:"연세소울정신건강의학과의원",address:"경기도 수원시 장안구 대평로 80 (정자동)",region:"수원 장안구",lat:37.2956,lng:126.9832},
+  {name:"이정신경과의원",address:"경기도 수원시 장안구 파장로82번길 6 (파장동)",region:"수원 장안구",lat:37.3112,lng:127.0043},
+  {name:"좋은마음정신과의원",address:"경기도 수원시 장안구 대평로 86 (정자동)",region:"수원 장안구",lat:37.2958,lng:126.9835},
+  {name:"강지윤정신건강의학과의원",address:"경기도 수원시 영통구 봉영로 1612 (영통동)",region:"수원 영통구",lat:37.2506,lng:127.0537},
+  {name:"광교성모은정신건강의학과의원",address:"경기도 수원시 영통구 센트럴타운로 98 (이의동)",region:"수원 영통구",lat:37.2878,lng:127.0524},
+  {name:"광교연세정신건강의학과의원",address:"경기도 수원시 영통구 센트럴타운로 106 (이의동)",region:"수원 영통구",lat:37.2876,lng:127.0527},
+  {name:"광교호수정신건강의학과의원",address:"경기도 수원시 영통구 광교중앙로 145 (이의동)",region:"수원 영통구",lat:37.2869,lng:127.0583},
+  {name:"다원정신건강의학과의원",address:"경기도 수원시 영통구 효원로 381 (매탄동)",region:"수원 영통구",lat:37.2628,lng:127.0537},
+  {name:"리지정신건강의학과의원",address:"경기도 수원시 영통구 도청로17번길 10 (이의동)",region:"수원 영통구",lat:37.2862,lng:127.0516},
+  {name:"마음똑똑정신건강의학과의원",address:"경기도 수원시 영통구 중부대로 266-1 (매탄동)",region:"수원 영통구",lat:37.2741,lng:127.0448},
+  {name:"밝은마음정신건강의학과의원",address:"경기도 수원시 영통구 중부대로 250-1 (매탄동)",region:"수원 영통구",lat:37.2737,lng:127.0441},
+  {name:"밝은미래정신과의원",address:"경기도 수원시 영통구 봉영로 1569 (영통동)",region:"수원 영통구",lat:37.2498,lng:127.0531},
+  {name:"밝은빛정신건강의학과의원",address:"경기도 수원시 영통구 덕영대로 1470 (망포동)",region:"수원 영통구",lat:37.2452,lng:127.0517},
+  {name:"새마음정신건강의학과의원",address:"경기도 수원시 영통구 영통로 195 (망포동)",region:"수원 영통구",lat:37.2450,lng:127.0557},
+  {name:"서울아이정신건강의학과의원",address:"경기도 수원시 영통구 봉영로 1605 (영통동)",region:"수원 영통구",lat:37.2504,lng:127.0539},
+  {name:"서울이룸정신건강의학과의원",address:"경기도 수원시 영통구 덕영대로 1478 (망포동)",region:"수원 영통구",lat:37.2455,lng:127.0526},
+  {name:"수원성심정신건강의학과의원",address:"경기도 수원시 영통구 동수원로 526 (매탄동)",region:"수원 영통구",lat:37.2634,lng:127.0543},
+  {name:"아주큰나무 정신건강의학과의원",address:"경기도 수원시 영통구 광교호수공원로 277 (원천동)",region:"수원 영통구",lat:37.2910,lng:127.0487},
+  {name:"온쉼표정신건강의학과의원",address:"경기도 수원시 영통구 덕영대로 1541 (영통동)",region:"수원 영통구",lat:37.2463,lng:127.0595},
+  {name:"지성정신건강의학과의원",address:"경기도 수원시 영통구 봉영로 1606 (영통동)",region:"수원 영통구",lat:37.2538,lng:127.0737},
+  {name:"다정정신건강의학과의원",address:"경기도 수원시 권선구 금곡로 205 (금곡동)",region:"수원 권선구",lat:37.2415,lng:127.0001},
+  {name:"브리즈정신건강의학과의원",address:"경기도 수원시 권선구 경수대로 330 (권선동)",region:"수원 권선구",lat:37.2530,lng:126.9802},
+  {name:"강남정신건강의학과의원",address:"서울특별시 서초구 강남대로 341 (서초동)",region:"서초구",lat:37.4930,lng:127.0151},
+  {name:"강남푸른정신건강의학과의원",address:"서울특별시 서초구 강남대로 345 (서초동)",region:"서초구",lat:37.4932,lng:127.0153},
+  {name:"개운정신건강의학과의원",address:"서울특별시 서초구 동작대로 114 (방배동)",region:"서초구",lat:37.4868,lng:126.9851},
+  {name:"김동수정신건강의학과의원",address:"서울특별시 서초구 서초대로 397 (서초동)",region:"서초구",lat:37.4954,lng:127.0278},
+  {name:"김병수정신건강의학과의원",address:"서울특별시 서초구 서초중앙로 125 (서초동)",region:"서초구",lat:37.4948,lng:127.0163},
+  {name:"김병후정신건강의학과의원",address:"서울특별시 서초구 반포대로 287 (반포동)",region:"서초구",lat:37.5044,lng:127.0007},
+  {name:"김정신건강의학과의원",address:"서울특별시 서초구 강남대로 455 (서초동)",region:"서초구",lat:37.4908,lng:127.0285},
+  {name:"김종주신경정신과의원",address:"서울특별시 서초구 신반포로 157 (잠원동)",region:"서초구",lat:37.5139,lng:127.0022},
+  {name:"나눔정신건강의학과의원",address:"서울특별시 서초구 방배로 97 (방배동)",region:"서초구",lat:37.4866,lng:126.9888},
+  {name:"늘평안정신건강의학과의원",address:"서울특별시 서초구 동작대로 90 (방배동)",region:"서초구",lat:37.4861,lng:126.9839},
+  {name:"당신의정신건강의학과의원",address:"서울특별시 서초구 강남대로 359 (서초동)",region:"서초구",lat:37.4935,lng:127.0157},
+  {name:"더서울정신건강의학과의원",address:"서울특별시 서초구 서초대로77길 9 (서초동)",region:"서초구",lat:37.4987,lng:127.0261},
+  {name:"디딤정신건강의학과의원",address:"서울특별시 서초구 동작대로 118 (방배동)",region:"서초구",lat:37.4870,lng:126.9854},
+  {name:"디에프(DF)정신건강의학과의원",address:"서울특별시 서초구 서초중앙로 113 (서초동)",region:"서초구",lat:37.4946,lng:127.0157},
+  {name:"리마인드정신건강의학과의원",address:"서울특별시 서초구 서초대로 3-4 (방배동)",region:"서초구",lat:37.4858,lng:126.9830},
+  {name:"마루정신건강의학과의원",address:"서울특별시 서초구 신반포로 189 (잠원동)",region:"서초구",lat:37.5109,lng:127.0033},
+  {name:"마음감기정신건강의학과의원",address:"서울특별시 서초구 강남대로 455 (서초동)",region:"서초구",lat:37.4909,lng:127.0284},
+  {name:"마음과마음정신건강의학과의원",address:"서울특별시 서초구 서운로 39 (서초동)",region:"서초구",lat:37.4951,lng:127.0191},
+  {name:"마음샘정신건강의학과의원",address:"서울특별시 서초구 서초대로 302 (서초동)",region:"서초구",lat:37.4937,lng:127.0147},
+  {name:"마음연정신건강의학과의원",address:"서울특별시 서초구 방배로 111 (방배동)",region:"서초구",lat:37.4840,lng:126.9958},
+  {name:"마음지음정신건강의학과의원",address:"서울특별시 서초구 강남대로79길 16 (반포동)",region:"서초구",lat:37.5033,lng:127.0118},
+  {name:"마음투유정신건강의학과의원",address:"서울특별시 서초구 강남대로 48-6 (양재동)",region:"서초구",lat:37.4752,lng:127.0474},
+  {name:"마인드온정신건강의학과의원",address:"서울특별시 서초구 서초대로77길 62 (서초동)",region:"서초구",lat:37.4990,lng:127.0280},
+  {name:"밝은서울정신건강의학과의원",address:"서울특별시 서초구 동작대로 70 (방배동)",region:"서초구",lat:37.4852,lng:126.9820},
+  {name:"삼성공감정신건강의학과의원",address:"서울특별시 서초구 잠원로3길 40 (잠원동)",region:"서초구",lat:37.5082,lng:127.0036},
+  {name:"삼성따뜻한정신건강의학과의원",address:"서울특별시 서초구 사임당로 143 (서초동)",region:"서초구",lat:37.4943,lng:127.0276},
+  {name:"삼성빛정신건강의학과의원",address:"서울특별시 서초구 강남대로53길 12 (서초동)",region:"서초구",lat:37.4944,lng:127.0277},
+  {name:"삼성양재숲정신건강의학과의원",address:"서울특별시 서초구 강남대로 212 (양재동)",region:"서초구",lat:37.4840,lng:127.0351},
+  {name:"샘신경정신과의원",address:"서울특별시 서초구 사평대로55길 8 (반포동)",region:"서초구",lat:37.5044,lng:127.0225},
+  {name:"서동수위드어스정신건강의학과의원",address:"서울특별시 서초구 헌릉로 176 (내곡동)",region:"서초구",lat:37.4605,lng:127.0741},
+  {name:"서울라움결정신건강의학과의원",address:"서울특별시 서초구 서초대로 307 (서초동)",region:"서초구",lat:37.4944,lng:127.0154},
+  {name:"서울마음등대정신건강의학과의원",address:"서울특별시 서초구 서초대로52길 38 (서초동)",region:"서초구",lat:37.4922,lng:127.0146},
+  {name:"서울마음숲정신건강의학과의원",address:"서울특별시 서초구 서초중앙로24길 27 (서초동)",region:"서초구",lat:37.4954,lng:127.0165},
+  {name:"서울청정신건강의학과의원",address:"서울특별시 서초구 서초대로77길 17 (서초동)",region:"서초구",lat:37.4997,lng:127.0256},
+  {name:"서울탑정신건강의학과의원",address:"서울특별시 서초구 반포대로 287 (반포동)",region:"서초구",lat:37.5043,lng:127.0006},
+  {name:"서초성모정신건강의학과의원",address:"서울특별시 서초구 서초중앙로 56 (서초동)",region:"서초구",lat:37.4941,lng:127.0131},
+  {name:"서초정신건강의학과의원",address:"서울특별시 서초구 사임당로 38 (서초동)",region:"서초구",lat:37.4936,lng:127.0260},
+  {name:"선일정신건강의학과의원",address:"서울특별시 서초구 방배로 215 (방배동)",region:"서초구",lat:37.4924,lng:126.9903},
+  {name:"소망정신건강의학과의원",address:"서울특별시 서초구 효령로 260 (서초동)",region:"서초구",lat:37.4840,lng:127.0126},
+  {name:"알에이치(RH)정신건강의학과의원",address:"서울특별시 서초구 서초중앙로22길 25 (서초동)",region:"서초구",lat:37.4937,lng:127.0149},
+  {name:"양재삼성정신건강의학과의원",address:"서울특별시 서초구 강남대로 224 (양재동)",region:"서초구",lat:37.4841,lng:127.0352},
+  {name:"연세새힘정신건강의학과의원",address:"서울특별시 서초구 강남대로 381 (서초동)",region:"서초구",lat:37.4943,lng:127.0192},
+  {name:"연세손정신건강의학과의원",address:"서울특별시 서초구 남부순환로 2614 (양재동)",region:"서초구",lat:37.4769,lng:127.0455},
+  {name:"연세엘정신건강의학과의원",address:"서울특별시 서초구 사임당로 39 (서초동)",region:"서초구",lat:37.4937,lng:127.0261},
+  {name:"연세정신건강의학과의원",address:"서울특별시 서초구 서초대로 24 (방배동)",region:"서초구",lat:37.4856,lng:126.9849},
+  {name:"연세휴정신건강의학과의원",address:"서울특별시 서초구 강남대로 375 (서초동)",region:"서초구",lat:37.4963,lng:127.0278},
+  {name:"영동신경정신과의원",address:"서울특별시 서초구 서초중앙로 146 (서초동)",region:"서초구",lat:37.4947,lng:127.0137},
+  {name:"온마음정신건강의학과의원",address:"서울특별시 서초구 강남대로 559 (잠원동)",region:"서초구",lat:37.5136,lng:127.0246},
+  {name:"온빛정신건강의학과의원",address:"서울특별시 서초구 효령로33길 45 (방배동)",region:"서초구",lat:37.4843,lng:126.9951},
+  {name:"용인정신건강의학과의원",address:"서울특별시 서초구 신반포로 205 (잠원동)",region:"서초구",lat:37.5122,lng:127.0043},
+  {name:"윌정신건강의학과의원",address:"서울특별시 서초구 효령로 120 (방배동)",region:"서초구",lat:37.4800,lng:126.9970},
+  {name:"이로정신건강의학과의원",address:"서울특별시 서초구 고무래로 32 (반포동)",region:"서초구",lat:37.5025,lng:127.0121},
+  {name:"이범용정신건강의학과의원",address:"서울특별시 서초구 서초중앙로26길 11 (서초동)",region:"서초구",lat:37.4933,lng:127.0108},
+  {name:"이선이정신건강의학과의원",address:"서울특별시 서초구 서초중앙로24길 18 (서초동)",region:"서초구",lat:37.4946,lng:127.0155},
+  {name:"이수톡정신건강의학과의원",address:"서울특별시 서초구 동작대로 132 (방배동)",region:"서초구",lat:37.4878,lng:126.9869},
+  {name:"이정신건강의학과의원",address:"서울특별시 서초구 신반포로 325 (잠원동)",region:"서초구",lat:37.5143,lng:127.0082},
+  {name:"이지브레인서초정신건강의학과의원",address:"서울특별시 서초구 서초대로 3-4 (방배동)",region:"서초구",lat:37.4859,lng:126.9831},
+  {name:"이해깊은 정신건강의학과의원",address:"서울특별시 서초구 반포대로 291 (반포동)",region:"서초구",lat:37.5046,lng:127.0011},
+  {name:"있는그대로 정신건강의학과의원",address:"서울특별시 서초구 강남대로 449-3 (서초동)",region:"서초구",lat:37.4909,lng:127.0284},
+  {name:"잠원숲정신건강의학과의원",address:"서울특별시 서초구 잠원로4길 50 (잠원동)",region:"서초구",lat:37.5139,lng:127.0043},
+  {name:"정희진정신건강의학과의원",address:"서울특별시 서초구 남부순환로 2652 (양재동)",region:"서초구",lat:37.4772,lng:127.0464},
+  {name:"최명기정신건강의학과의원",address:"서울특별시 서초구 잠원로 24 (반포동)",region:"서초구",lat:37.5139,lng:127.0035},
+  {name:"최병호신경정신과의원",address:"서울특별시 서초구 서초중앙로 120 (서초동)",region:"서초구",lat:37.4944,lng:127.0131},
+  {name:"최신경정신과의원",address:"서울특별시 서초구 강남대로53길 7 (서초동)",region:"서초구",lat:37.4942,lng:127.0283},
+  {name:"최종배정신건강의학과의원",address:"서울특별시 서초구 남부순환로350길 4 (양재동)",region:"서초구",lat:37.4775,lng:127.0441},
+  {name:"하늘빛정신건강의학과의원",address:"서울특별시 서초구 동작대로 120 (방배동)",region:"서초구",lat:37.4872,lng:126.9858},
+  {name:"행복한아이정신건강의학과의원",address:"서울특별시 서초구 서초중앙로 145 (서초동)",region:"서초구",lat:37.4947,lng:127.0141},
+  {name:"휴먼마인드정신건강의학과의원",address:"서울특별시 서초구 강남대로 605 (잠원동)",region:"서초구",lat:37.5178,lng:127.0269},
+  {name:"가족사랑서울정신건강의학과의원",address:"서울특별시 동작구 보라매로 113 (대방동)",region:"동작구",lat:37.4994,lng:126.9278},
+  {name:"나란히정신건강의학과의원",address:"서울특별시 동작구 현충로 75 (흑석동)",region:"동작구",lat:37.5097,lng:126.9639},
+  {name:"나루정신건강의학과의원",address:"서울특별시 동작구 노량진로 140 (노량진동)",region:"동작구",lat:37.5129,lng:126.9416},
+  {name:"노량진성모정신건강의학과의원",address:"서울특별시 동작구 노량진로 150 (노량진동)",region:"동작구",lat:37.5134,lng:126.9426},
+  {name:"마음봄정신건강의학과의원",address:"서울특별시 동작구 상도로 247 (상도동)",region:"동작구",lat:37.5035,lng:126.9491},
+  {name:"박신영정신건강의학과의원",address:"서울특별시 동작구 시흥대로 664 (신대방동)",region:"동작구",lat:37.4963,lng:126.9167},
+  {name:"박언규정신건강의학과의원",address:"서울특별시 동작구 동작대로 89 (사당동)",region:"동작구",lat:37.4796,lng:126.9820},
+  {name:"박홍석정신건강의학과의원",address:"서울특별시 동작구 상도로 178 (상도동)",region:"동작구",lat:37.5003,lng:126.9487},
+  {name:"변재영정신건강의학과의원",address:"서울특별시 동작구 장승배기로 98 (노량진동)",region:"동작구",lat:37.5064,lng:126.9399},
+  {name:"봄정신건강의학과의원",address:"서울특별시 동작구 상도로 69 (대방동)",region:"동작구",lat:37.4999,lng:126.9284},
+  {name:"사당숲정신건강의학과의원",address:"서울특별시 동작구 동작대로 13 (사당동)",region:"동작구",lat:37.4777,lng:126.9812},
+  {name:"삼성공감정신건강의학과의원",address:"서울특별시 동작구 상도로 345 (상도동)",region:"동작구",lat:37.4978,lng:126.9527},
+  {name:"상도숲정신건강의학과의원",address:"서울특별시 동작구 양녕로 270 (상도1동)",region:"동작구",lat:37.5036,lng:126.9492},
+  {name:"상도연세정신건강의학과의원",address:"서울특별시 동작구 상도로 264 (상도1동)",region:"동작구",lat:37.5035,lng:126.9471},
+  {name:"성모숲정신건강의학과의원",address:"서울특별시 동작구 사당로 300 (사당동)",region:"동작구",lat:37.4845,lng:126.9806},
+  {name:"세종정신건강의학과의원",address:"서울특별시 동작구 사당로 220 (사당동)",region:"동작구",lat:37.4838,lng:126.9776},
+  {name:"연세공감정신건강의학과의원",address:"서울특별시 동작구 동작대로 109 (사당동)",region:"동작구",lat:37.4790,lng:126.9834},
+  {name:"연세광정신건강의학과의원",address:"서울특별시 동작구 상도로 13 (대방동)",region:"동작구",lat:37.5000,lng:126.9222},
+  {name:"이수정신건강의학과의원",address:"서울특별시 동작구 동작대로 121 (사당동)",region:"동작구",lat:37.4874,lng:126.9818},
+  {name:"파랑새정신건강의학과의원",address:"서울특별시 동작구 상도로 65 (대방동)",region:"동작구",lat:37.4999,lng:126.9271},
+  {name:"가람정신건강의학과의원",address:"서울특별시 관악구 시흥대로 552 (신림동)",region:"관악구",lat:37.4821,lng:126.9014},
+  {name:"강신경정신과의원",address:"서울특별시 관악구 신림로 340 (신림동)",region:"관악구",lat:37.4840,lng:126.9292},
+  {name:"나눔정신건강의학과의원",address:"서울특별시 관악구 남부순환로 1832 (봉천동)",region:"관악구",lat:37.4832,lng:126.9420},
+  {name:"레몬정신건강의학과의원",address:"서울특별시 관악구 관악로 164 (봉천동)",region:"관악구",lat:37.4825,lng:126.9529},
+  {name:"마나스정신건강의학과의원",address:"서울특별시 관악구 장군봉1길 56 (봉천동)",region:"관악구",lat:37.4814,lng:126.9431},
+  {name:"마음가득정신건강의학과의원",address:"서울특별시 관악구 남부순환로 1715 (봉천동)",region:"관악구",lat:37.4830,lng:126.9409},
+  {name:"마음누리정신건강의학과의원",address:"서울특별시 관악구 봉천로 608 (봉천동)",region:"관악구",lat:37.4800,lng:126.9525},
+  {name:"마음챙김정신건강의학과의원",address:"서울특별시 관악구 신림로 350 (신림동)",region:"관악구",lat:37.4855,lng:126.9300},
+  {name:"맑음정신건강의학과의원",address:"서울특별시 관악구 남부순환로 1942 (봉천동)",region:"관악구",lat:37.4763,lng:126.9645},
+  {name:"박진억신경정신과의원",address:"서울특별시 관악구 남현길 7 (남현동)",region:"관악구",lat:37.4762,lng:126.9770},
+  {name:"사당유연정신건강의학과의원",address:"서울특별시 관악구 남부순환로 2064 (남현동)",region:"관악구",lat:37.4764,lng:126.9782},
+  {name:"서울디딤정신건강의학과의원",address:"서울특별시 관악구 남부순환로 1905 (봉천동)",region:"관악구",lat:37.4771,lng:126.9674},
+  {name:"서울탑정신건강의학과의원",address:"서울특별시 관악구 관악로 168 (봉천동)",region:"관악구",lat:37.4828,lng:126.9534},
+  {name:"성모새봄정신건강의학과의원",address:"서울특별시 관악구 관악로 203 (봉천동)",region:"관악구",lat:37.4828,lng:126.9538},
+  {name:"소나무정신건강의학과의원",address:"서울특별시 관악구 관악로 165 (봉천동)",region:"관악구",lat:37.4800,lng:126.9521},
+  {name:"신림정신건강의학과의원",address:"서울특별시 관악구 남부순환로 1603 (신림동)",region:"관악구",lat:37.4843,lng:126.9286},
+  {name:"신림평온정신건강의학과의원",address:"서울특별시 관악구 신림로 366 (신림동)",region:"관악구",lat:37.4870,lng:126.9293},
+  {name:"안녕정신건강의학과의원",address:"서울특별시 관악구 신림로 315 (신림동)",region:"관악구",lat:37.4825,lng:126.9296},
+  {name:"야호정신건강의학과의원",address:"서울특별시 관악구 남부순환로 1601-1 (신림동)",region:"관악구",lat:37.4844,lng:126.9285},
+  {name:"연세라온정신과의원",address:"서울특별시 관악구 호암로 602 (신림동)",region:"관악구",lat:37.4779,lng:126.9155},
+  {name:"연세필정신과의원",address:"서울특별시 관악구 남부순환로 2056 (남현동)",region:"관악구",lat:37.4762,lng:126.9775},
+  {name:"연세햇살정신건강의학과의원",address:"서울특별시 관악구 신림로 318 (신림동)",region:"관악구",lat:37.4829,lng:126.9285},
+  {name:"연세훈정신건강의학과의원",address:"서울특별시 관악구 관악로 195 (봉천동)",region:"관악구",lat:37.4828,lng:126.9533},
+  {name:"유정신경정신과의원",address:"서울특별시 관악구 남부순환로 1808 (봉천동)",region:"관악구",lat:37.4804,lng:126.9541},
+  {name:"한빛정신건강의학과의원",address:"서울특별시 관악구 남부순환로 1838 (봉천동)",region:"관악구",lat:37.4805,lng:126.9541},
+  {name:"한솔신경정신과의원",address:"서울특별시 관악구 난곡로 268 (신림동)",region:"관악구",lat:37.4778,lng:126.9155},
+];
+
+// ===================== 상태 (단일 공유) =====================
+const state = {
+  region: '전체',
+  search: '',
+  view: 'list',
+  dealStatus: {},   // key→ 거래중|비거래처 (단일)
+  dealTags: {},     // key→ Set {타겟처, 루틴처} (복수)
+  grade: {},        // key→ S|A|B|C|D|E (거래중일 때만)
+  visited: {},      // key→ true/false
+  notes: {},        // key→ string
+  openKey: null,
+};
+
+function ckey(c) { return c.name + '_' + c.region; }
+
+function getFiltered() {
+  return CLINICS.filter(c => {
+    const ro = state.region === '전체' || c.region === state.region;
+    const so = !state.search || c.name.includes(state.search) || c.address.includes(state.search);
+    return ro && so;
+  });
+}
+
+// ===================== 헤더 업데이트 =====================
+function updateHeader() {
+  const tradingCount = Object.values(state.dealStatus).filter(v=>v==='거래중').length;
+  const visitedCount = Object.values(state.visited).filter(Boolean).length;
+  let sub = `총 ${CLINICS.length}개 · 7개 지역`;
+  if (visitedCount) sub += ` · ✅ ${visitedCount}개 확인`;
+  if (tradingCount) sub += ` · 거래중 ${tradingCount}`;
+  document.getElementById('header-sub').textContent = sub;
+}
+
+function getRegionTradingCount(region) {
+  return CLINICS.filter(c => c.region === region && state.dealStatus[ckey(c)] === '거래중').length;
+}
+
+// ===================== 지역 탭 =====================
+function buildRegionTabs() {
+  const cnt = {};
+  CLINICS.forEach(c => { cnt[c.region] = (cnt[c.region]||0)+1; });
+  const wrap = document.getElementById('region-tabs');
+  wrap.innerHTML = '';
+  ['전체', ...REGIONS].forEach(r => {
+    const btn = document.createElement('button');
+    btn.className = 'rtab' + (state.region===r?' active':'');
+    const color = REGION_COLOR[r] || '#1C2A3A';
+    const total = r==='전체' ? CLINICS.length : (cnt[r]||0);
+    const trading = r==='전체'
+      ? Object.values(state.dealStatus).filter(v=>v==='거래중').length
+      : getRegionTradingCount(r);
+    btn.textContent = r + ' ' + total + (trading ? ' (거래중 '+trading+')' : '');
+    if (state.region===r) { btn.style.background=color; btn.style.borderColor=color; }
+    btn.onclick = () => {
+      state.region = r;
+      state.openKey = null;
+      buildRegionTabs();
+      render();
+    };
+    wrap.appendChild(btn);
+  });
+}
+
+// ===================== 뷰 전환 =====================
+function switchView(v) {
+  state.view = v;
+  document.getElementById('map-view').style.display = v==='map'?'block':'none';
+  document.getElementById('list-view').style.display = v==='list'?'block':'none';
+  document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.view-btn')[v==='list'?0:1].classList.add('active');
+  if (v==='map') { setTimeout(()=>{ map.invalidateSize(); renderMarkers(); },100); }
+}
+
+// ===================== 검색 =====================
+function onSearch() {
+  state.search = document.getElementById('search-input').value;
+  state.openKey = null;
+  render();
+}
+
+// ===================== 거래상태 토글 =====================
+function toggleDealMain(k, optKey) {
+  state.dealStatus[k] = state.dealStatus[k]===optKey ? null : optKey;
+  updateHeader();
+  buildRegionTabs();
+  renderList();
+  refreshMarker(k);
+}
+function toggleGrade(k, gradeKey) {
+  state.grade[k] = state.grade[k] === gradeKey ? null : gradeKey;
+  renderList();
+  refreshMarker(k);
+}
+
+function toggleDealTag(k, tagKey) {
+  if (!state.dealTags[k]) state.dealTags[k] = [];
+  const idx = state.dealTags[k].indexOf(tagKey);
+  if (idx >= 0) state.dealTags[k].splice(idx, 1);
+  else state.dealTags[k].push(tagKey);
+  renderList();
+  refreshMarker(k);
+}
+
+function toggleVisited(k) {
+  state.visited[k] = !state.visited[k];
+  updateHeader();
+  renderList();
+}
+
+function saveNote(k, val) {
+  state.notes[k] = val;
+}
+
+// ===================== 목록 렌더 =====================
+function renderList() {
+  const list = getFiltered();
+  document.getElementById('search-count').textContent = state.search ? `검색 결과 ${list.length}건` : '';
+  document.getElementById('list-count').textContent = list.length + '개 의원';
+
+  const body = document.getElementById('list-body');
+  body.innerHTML = '';
+
+  list.forEach((c, i) => {
+    const k = ckey(c);
+    const color = REGION_COLOR[c.region]||'#888';
+    const bg = REGION_BG[c.region]||'#f5f5f5';
+    const deal = state.dealStatus[k];
+    const dealMainOpt = DEAL_MAIN.find(o=>o.key===deal);
+    const dealTagsList = state.dealTags[k] || [];
+    const isVisited = !!state.visited[k];
+    const isOpen = state.openKey === k;
+    const hasNote = !!state.notes[k];
+
+    const card = document.createElement('div');
+    card.className = 'card' + (isOpen?' open':'');
+    card.style.setProperty('--c', color);
+
+    // 뱃지 HTML (거래상태 + 태그들)
+    const dealBadge = dealMainOpt
+      ? `<span class="deal-badge" style="color:${dealMainOpt.color};background:${dealMainOpt.bg};border-color:${dealMainOpt.color}40">${dealMainOpt.key}</span>` : '';
+    const gradeVal = state.grade[k];
+    const gradeOpt = GRADES.find(g=>g.key===gradeVal);
+    const gradeBadge = (deal==='거래중' && gradeOpt)
+      ? `<span class="deal-badge" style="color:${gradeOpt.color};background:${gradeOpt.bg};border-color:${gradeOpt.color}40;font-size:11px;font-weight:800">${gradeOpt.key}등급</span>` : '';
+    const tagBadges = dealTagsList.map(t => {
+      const opt = DEAL_TAGS.find(o=>o.key===t);
+      return opt ? `<span class="deal-badge" style="color:${opt.color};background:${opt.bg};border-color:${opt.color}40">${opt.key}</span>` : '';
+    }).join('');
+
+    // 패널 버튼
+    const dealMainBtns = DEAL_MAIN.map(opt => {
+      const active = deal===opt.key;
+      return `<button class="deal-btn${active?' active':''}"
+        style="${active?`background:${opt.bg};color:${opt.color};border-color:${opt.color};font-weight:700`:''}"
+        onclick="toggleDealMain('${k}','${opt.key}')">${opt.key}</button>`;
+    }).join('');
+    const dealTagBtns = DEAL_TAGS.map(opt => {
+      const active = dealTagsList.includes(opt.key);
+      return `<button class="deal-btn${active?' active':''}"
+        style="${active?`background:${opt.bg};color:${opt.color};border-color:${opt.color};font-weight:700`:''}"
+        onclick="toggleDealTag('${k}','${opt.key}')">${opt.key}</button>`;
+    }).join('');
+    const gradeBtns = GRADES.map(g => {
+      const active = state.grade[k]===g.key;
+      return `<button class="deal-btn${active?' active':''}"
+        style="padding:4px 10px;min-width:32px;${active?`background:${g.bg};color:${g.color};border-color:${g.color};font-weight:800`:''}"
+        onclick="toggleGrade('${k}','${g.key}')">${g.key}</button>`;
+    }).join('');
+    const gradeRow = deal==='거래중'
+      ? `<div style="margin-bottom:5px"><span style="font-size:10px;color:#999">등급</span><br><div style="display:flex;gap:5px;margin-top:4px">${gradeBtns}</div></div>`
+      : '';
+    const dealBtns = `
+      <div style="margin-bottom:5px"><span style="font-size:10px;color:#999">거래 여부 (택1)</span><br><div style="display:flex;gap:5px;margin-top:4px">${dealMainBtns}</div></div>
+      ${gradeRow}
+      <div><span style="font-size:10px;color:#999">태그 (중복 선택)</span><br><div style="display:flex;gap:5px;margin-top:4px">${dealTagBtns}</div></div>`;
+
+    card.innerHTML = `
+      <div class="card-header" onclick="toggleCard('${k}')">
+        <div class="card-num" style="background:${isVisited?'#2E9E5B':bg};color:${isVisited?'white':color}">
+          ${isVisited?'✓':(i+1)}
+        </div>
+        <div class="card-body-wrap">
+          <div class="card-name-row">
+            <span class="card-name">${c.name}</span>
+            <span class="region-badge" style="background:${bg};color:${color}">${c.region}</span>
+            ${dealBadge}${gradeBadge}${tagBadges}
+            ${hasNote?'<span class="note-icon">📝</span>':''}
+          </div>
+          <div class="card-addr">${c.address}</div>
+        </div>
+        <span class="card-arrow">${isOpen?'▲':'▼'}</span>
+      </div>
+      ${isOpen?`
+      <div class="card-panel" style="background:${bg}">
+        <div class="panel-addr">${c.address}</div>
+        <div class="section-label">거래 상태</div>
+        <div class="deal-row">${dealBtns}</div>
+        <div class="action-row">
+          <button class="btn-check${isVisited?' done':''}" onclick="toggleVisited('${k}')">
+            ${isVisited?'✅ 확인완료':'☐ 확인완료 표시'}
+          </button>
+          <a href="https://map.kakao.com/link/search/${encodeURIComponent(c.name)}" target="_blank" class="btn-link btn-kakao">🗺️ 카카오맵</a>
+          <a href="https://search.naver.com/search.naver?query=${encodeURIComponent(c.name+' '+c.region)}" target="_blank" class="btn-link btn-naver">N 검색</a>
+          <button class="btn-link btn-map-go" style="border:none;cursor:pointer;font-family:inherit;" onclick="goToMap('${k}')">📍 지도에서 보기</button>
+        </div>
+        <textarea class="note-area" placeholder="메모 (인수인계 내용, 담당자, 특이사항 등)"
+          oninput="saveNote('${k}',this.value)">${state.notes[k]||''}</textarea>
+      </div>`:''}
+    `;
+    body.appendChild(card);
+  });
+}
+
+function toggleCard(k) {
+  state.openKey = state.openKey===k ? null : k;
+  renderList();
+}
+
+// 지도에서 보기 버튼
+function goToMap(k) {
+  const c = CLINICS.find(cl=>ckey(cl)===k);
+  if (!c) return;
+  switchView('map');
+  setTimeout(()=>{
+    map.setView([c.lat, c.lng], 17);
+    const marker = markerMap[k];
+    if (marker) marker.openPopup();
+  }, 200);
+}
+
+// ===================== 지도 =====================
+const map = L.map('map').setView([37.42, 126.99], 11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors', maxZoom:19
+}).addTo(map);
+
+const markerLayer = L.layerGroup().addTo(map);
+const markerMap = {}; // key → marker
+
+function getPopupHTML(c) {
+  const k = ckey(c);
+  const color = REGION_COLOR[c.region]||'#888';
+  const bg = REGION_BG[c.region]||'#f5f5f5';
+  const deal = state.dealStatus[k];
+  const dealMainOpt2 = DEAL_MAIN.find(o=>o.key===deal);
+  const dealTagsList2 = state.dealTags[k] || [];
+  const mainBtns = DEAL_MAIN.map(opt=>{
+    const active = deal===opt.key;
+    return `<button class="popup-deal-btn${active?' active':''}"
+      style="${active?`background:${opt.bg};color:${opt.color};border-color:${opt.color};font-weight:700`:''}"
+      onclick="popupDealMain('${k}','${opt.key}')">${opt.key}</button>`;
+  }).join('');
+  const tagBtns = DEAL_TAGS.map(opt=>{
+    const active = dealTagsList2.includes(opt.key);
+    return `<button class="popup-deal-btn${active?' active':''}"
+      style="${active?`background:${opt.bg};color:${opt.color};border-color:${opt.color};font-weight:700`:''}"
+      onclick="popupDealTag('${k}','${opt.key}')">${opt.key}</button>`;
+  }).join('');
+  const popGradeBtns = GRADES.map(g=>{
+    const active = state.grade[k]===g.key;
+    return `<button class="popup-deal-btn${active?' active':''}"
+      style="padding:4px 9px;min-width:28px;${active?`background:${g.bg};color:${g.color};border-color:${g.color};font-weight:800`:''}"
+      onclick="popupGrade('${k}','${g.key}')">${g.key}</button>`;
+  }).join('');
+  const popGradeRow = deal==='거래중'
+    ? `<div style='margin-bottom:5px'><span style='font-size:10px;color:#999'>등급</span><div style='display:flex;gap:5px;margin-top:3px'>${popGradeBtns}</div></div>` : '';
+  const dealBtns2 = `<div style='margin-bottom:5px'><span style='font-size:10px;color:#999'>거래 여부 (택1)</span><div style='display:flex;gap:5px;margin-top:3px'>${mainBtns}</div></div>${popGradeRow}<div><span style='font-size:10px;color:#999'>태그 (중복 선택)</span><div style='display:flex;gap:5px;margin-top:3px'>${tagBtns}</div></div>`;
+
+  return `<div class="popup-inner">
+    <div class="popup-name">${c.name}</div>
+    <div class="popup-meta">
+      <span class="region-badge" style="background:${bg};color:${color}">${c.region}</span>
+      ${dealMainOpt2?`<span class="deal-badge" style="color:${dealMainOpt2.color};background:${dealMainOpt2.bg};border-color:${dealMainOpt2.color}40">${dealMainOpt2.key}</span>`:''}
+      ${(()=>{const gv=state.grade[k];const go=GRADES.find(g=>g.key===gv);return (deal==='거래중'&&go)?`<span class="deal-badge" style="color:${go.color};background:${go.bg};border-color:${go.color}40;font-weight:800">${go.key}등급</span>`:''})()}
+      ${dealTagsList2.map(t=>{const o=DEAL_TAGS.find(x=>x.key===t);return o?`<span class="deal-badge" style="color:${o.color};background:${o.bg};border-color:${o.color}40">${o.key}</span>`:''}).join('')}
+    </div>
+    <div class="popup-addr">${c.address}</div>
+    <div class="section-label">거래 상태</div>
+    <div class="popup-deal-row">${dealBtns2}</div>
+    <div class="popup-links">
+      <a href="https://map.kakao.com/link/search/${encodeURIComponent(c.name)}" target="_blank" class="popup-link btn-kakao">🗺️ 카카오맵</a>
+      <a href="https://search.naver.com/search.naver?query=${encodeURIComponent(c.name+' '+c.region)}" target="_blank" class="popup-link btn-naver">N 검색</a>
+    </div>
+  </div>`;
+}
+
+// 팝업 내 거래상태 버튼 (전역)
+window.popupDealMain = function(k, optKey) {
+  state.dealStatus[k] = state.dealStatus[k]===optKey ? null : optKey;
+  updateHeader();
+  buildRegionTabs();
+  renderList();
+  refreshMarker(k);
+};
+window.popupGrade = function(k, gradeKey) {
+  state.grade[k] = state.grade[k]===gradeKey ? null : gradeKey;
+  renderList();
+  refreshMarker(k);
+};
+window.popupDealTag = function(k, tagKey) {
+  if (!state.dealTags[k]) state.dealTags[k] = [];
+  const idx = state.dealTags[k].indexOf(tagKey);
+  if (idx >= 0) state.dealTags[k].splice(idx, 1);
+  else state.dealTags[k].push(tagKey);
+  renderList();
+  refreshMarker(k);
+};
+
+function refreshMarker(k) {
+  const marker = markerMap[k];
+  if (marker && marker.isPopupOpen()) {
+    const c = CLINICS.find(cl=>ckey(cl)===k);
+    if (c) marker.setPopupContent(getPopupHTML(c));
+  }
+  // 마커 색상도 거래상태 반영
+  const c = CLINICS.find(cl=>ckey(cl)===k);
+  if (c && markerMap[k]) {
+    const deal2 = state.dealStatus[k];
+    const tags2 = state.dealTags[k] || [];
+    const dealOpt2 = DEAL_MAIN.find(o=>o.key===deal2);
+    const baseColor = REGION_COLOR[c.region]||'#888';
+    const markerColor = dealOpt2 ? dealOpt2.color : baseColor;
+    const label = tags2.length ? tags2.map(t=>t[0]).join('') : (dealOpt2 ? dealOpt2.key[0] : '●');
+    markerMap[k].setIcon(makeIcon(markerColor, label));
+  }
+}
+
+function makeIcon(color, label='●') {
+  return L.divIcon({
+    className:'',
+    html:`<div class="custom-marker" style="background:${color}">${label}</div>`,
+    iconSize:[28,28], iconAnchor:[14,14], popupAnchor:[0,-16]
+  });
+}
+
+function renderMarkers() {
+  markerLayer.clearLayers();
+  Object.keys(markerMap).forEach(k=>delete markerMap[k]);
+
+  const list = getFiltered();
+  list.forEach(c => {
+    const k = ckey(c);
+    const deal = state.dealStatus[k];
+    const tags = state.dealTags[k] || [];
+    const dealOpt = DEAL_MAIN.find(o=>o.key===deal);
+    const baseColor = REGION_COLOR[c.region]||'#888';
+    const markerColor = dealOpt ? dealOpt.color : baseColor;
+    const label = tags.length ? tags.map(t=>t[0]).join('') : (dealOpt ? dealOpt.key[0] : '●');
+
+    const marker = L.marker([c.lat, c.lng], {icon: makeIcon(markerColor, label)}).addTo(markerLayer);
+    marker.bindPopup(()=>getPopupHTML(c), {maxWidth:280});
+    markerMap[k] = marker;
+  });
+
+  if (list.length) {
+    const bounds = L.latLngBounds(list.map(c=>[c.lat,c.lng]));
+    map.fitBounds(bounds, {padding:[40,40], maxZoom:15});
+  }
+}
+
+// ===================== 통합 렌더 =====================
+function render() {
+  renderList();
+  if (state.view==='map') renderMarkers();
+  updateHeader();
+}
+
+
+// ===================== 백업 / 불러오기 / CSV =====================
+
+function exportJSON() {
+  const now = new Date();
+  const ts = now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+'_'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0');
+  const data = { exportedAt: now.toISOString(), dealStatus: state.dealStatus, dealTags: state.dealTags, grade: state.grade, visited: state.visited, notes: state.notes };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '정신과의원_관리장_백업_'+ts+'.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('💾 백업 완료!');
+}
+
+function importJSON(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (data.dealStatus) Object.assign(state.dealStatus, data.dealStatus);
+      if (data.dealTags) Object.assign(state.dealTags, data.dealTags);
+      if (data.grade) Object.assign(state.grade, data.grade);
+      if (data.visited) Object.assign(state.visited, data.visited);
+      if (data.notes) Object.assign(state.notes, data.notes);
+      render();
+      const dt = data.exportedAt ? ' (백업일: '+data.exportedAt.slice(0,10)+')' : '';
+      showToast('📂 불러오기 완료'+dt);
+    } catch(err) {
+      showToast('❌ 파일 형식 오류. JSON 백업 파일을 선택해주세요.', true);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function exportCSV() {
+  const now = new Date();
+  const ts = now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0');
+  const headers = ['번호','의원명','지역','주소','거래여부','등급','태그','확인여부','메모'];
+  const rows = CLINICS.map((c, i) => {
+    const k = ckey(c);
+    const deal = state.dealStatus[k] || '';
+    const tags = (state.dealTags[k]||[]).join('/');
+    const grade = state.grade[k] || '';
+    const visited = state.visited[k] ? '확인완료' : '';
+    const note = (state.notes[k] || '').replace(/"/g,'""').replace(/\n/g,' ');
+    return [i+1, '"'+c.name+'"', '"'+c.region+'"', '"'+c.address+'"', deal, grade, tags, visited, '"'+note+'"'].join(',');
+  });
+  const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '정신과의원_관리장_'+ts+'.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('📊 CSV 저장 완료! 엑셀에서 바로 열 수 있어요.');
+}
+
+function showToast(msg, isError) {
+  let t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = '_toast';
+    t.style.cssText = 'position:fixed;bottom:28px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:10px;font-size:13px;font-weight:600;color:white;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.25);transition:opacity 0.3s;max-width:88vw;text-align:center;pointer-events:none;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = isError ? '#D45C2A' : '#1C2A3A';
+  t.style.opacity = '1';
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+}
+
+// ===================== 초기화 =====================
+buildRegionTabs();
+render();
+switchView('list');
+</script>
+</body>
+</html>
