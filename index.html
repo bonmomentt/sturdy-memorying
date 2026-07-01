@@ -12,6 +12,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23FAF8F4'/><text y='.9em' font-size='85'>🌱</text></svg>"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif; background:#FAF8F4; }
@@ -98,7 +99,9 @@ body { font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif; background:#
     <button class="view-btn" style="background:#16876E" onclick="exportJSON()" title="JSON 백업">💾 백업</button>
     <button class="view-btn" style="background:#8B44C7" onclick="document.getElementById('import-input').click()" title="JSON 불러오기">📂 불러오기</button>
     <button class="view-btn" style="background:#C47D0B" onclick="exportCSV()" title="엑셀용 CSV 내보내기">📊 CSV</button>
+    <button class="view-btn" style="background:#C2185B" onclick="document.getElementById('rx-input').click()" title="처방현황 엑셀 업로드">💊 처방현황</button>
     <input type="file" id="import-input" accept=".json" style="display:none" onchange="importJSON(event)"/>
+    <input type="file" id="rx-input" accept=".xlsx,.xls" multiple style="display:none" onchange="importRx(event)"/>
   </div>
 </div>
 
@@ -148,6 +151,10 @@ const GRADES = [
   {key:'C', color:'#558B2F', bg:'#F1F8E9'},
   {key:'D', color:'#5D6D7E', bg:'#EBEDEF'},
   {key:'E', color:'#455A64', bg:'#ECEFF1'},
+];
+const TRADE_TYPE = [
+  {key:'직거래', color:'#00838F', bg:'#E0F7FA'},
+  {key:'도매',   color:'#EF6C00', bg:'#FFF3E0'},
 ];
 const REGIONS = ["관악구","동작구","서초구","수원 팔달구","수원 장안구","수원 영통구","수원 권선구"];
 const PRODUCTS = ['월 약제비','가스피란','도네+메만','도네','멀타','메만','부스피','설트','시탈로','아리피','아토목','올란','징카','콜리날','쿠티아','플루옥'];
@@ -329,6 +336,8 @@ const state = {
   notes: {},
   schedule: {},
   visitCheck: {},
+  tradeType: {},
+  rxData: {},
   openKey: null,
 };
 
@@ -346,6 +355,8 @@ const state = {
       if (d.notes)      Object.assign(state.notes,      d.notes);
       if (d.schedule)   Object.assign(state.schedule,   d.schedule);
       if (d.visitCheck) Object.assign(state.visitCheck, d.visitCheck);
+      if (d.tradeType)  Object.assign(state.tradeType,  d.tradeType);
+      if (d.rxData)     Object.assign(state.rxData,     d.rxData);
     }
   } catch(e) { console.warn('localStorage 로드 실패', e); }
 })();
@@ -362,6 +373,8 @@ function saveToStorage() {
       notes:      state.notes,
       schedule:   state.schedule,
       visitCheck: state.visitCheck,
+      tradeType:  state.tradeType,
+      rxData:     state.rxData,
     }));
   } catch(e) { console.warn('localStorage 저장 실패', e); }
 }
@@ -452,9 +465,13 @@ function buildTimeFilterBar() {
     {key:'lunchStart', label:'🍱 점심시작 순'},
     {key:'lunchEnd',   label:'🍱 점심종료 순'},
     {key:'close',      label:'🌙 진료종료 순'},
+    {key:'name',       label:'📍 주소 순'},
     {key:'tomorrow',   label:'📅 내일 방문 가능'},
+    {key:'직거래',      label:'🤝 직거래만'},
+    {key:'rx끊김',      label:'💊 거래끊김'},
+    {key:'rx증가',      label:'💊 매출증가'},
   ];
-  bar.innerHTML = '<span style="font-size:11px;color:#888;font-weight:600;margin-right:8px;line-height:28px;">방문</span>' +
+  bar.innerHTML = '<span style="font-size:11px;color:#888;font-weight:600;margin-right:8px;line-height:28px;">보기</span>' +
     slots.map(s => {
       const active = state.timeFilter === s.key;
       return `<button onclick="setTimeFilter('${s.key}')"
@@ -491,6 +508,17 @@ function matchTimeFilter(c) {
     if (isOffTomorrow) return false;
     if (!open && !lunchStart && !close) return false;
     return true;
+  }
+  if (state.timeFilter === '직거래') {
+    return state.tradeType[k] === '직거래';
+  }
+  if (state.timeFilter === 'rx끊김') {
+    const rx = findRx(c.name);
+    return rx && rx.status === '거래끊김';
+  }
+  if (state.timeFilter === 'rx증가') {
+    const rx = findRx(c.name);
+    return rx && rx.status === '증가';
   }
   return true;
 }
@@ -623,6 +651,7 @@ function deleteClinic(k) {
   delete state.notes[k];
   delete state.schedule[k];
   delete state.visitCheck[k];
+  delete state.tradeType[k];
   saveToStorage();
   buildRegionTabs();
   render();
@@ -686,6 +715,33 @@ function saveNote(k, val) {
 
 
 
+// 직접입력칸 전용 저장 (비우면 필드 삭제)
+function saveScheduleCustom(k, field, val, doRender) {
+  const opts = {
+    open:['09:00','09:30','10:00'],
+    lunchStart:['13:00','14:00'],
+    lunchEnd:['14:00','15:00'],
+    close:['17:30','18:00','18:30']
+  }[field] || [];
+  const cur = (state.schedule[k]||{})[field] || '';
+  const v = val.trim();
+  if (v) {
+    saveSchedule(k, field, v, doRender);
+  } else {
+    // 직접입력칸을 비웠을 때: 현재값이 버튼옵션이 아니면(=직접입력값이면) 삭제
+    if (cur && !opts.includes(cur)) {
+      saveSchedule(k, field, '', doRender);
+    }
+  }
+}
+
+function toggleTradeType(k, type) {
+  state.tradeType[k] = state.tradeType[k] === type ? null : type;
+  saveToStorage();
+  renderList();
+  refreshMarker(k);
+}
+
 function toggleVisitCheck(k, slot) {
   if (!state.visitCheck[k]) state.visitCheck[k] = {};
   state.visitCheck[k][slot] = !state.visitCheck[k][slot];
@@ -703,9 +759,14 @@ function saveSchedule(k, field, val, doRender) {
 // ===================== 목록 렌더 =====================
 function renderList() {
   let list = getFiltered();
+  // 주소 가나다순 정렬 (독립)
+  if (state.timeFilter === 'name') {
+    list = [...list].sort((a, b) => a.address.localeCompare(b.address, 'ko'));
+  }
+
   // 통합 정렬: 시간(1차) + 등급/품목(2차)
-  const timeField = (state.timeFilter && state.timeFilter !== 'tomorrow')
-    ? {open:'open', lunchStart:'lunchStart', lunchEnd:'lunchEnd', close:'close'}[state.timeFilter]
+  const timeField = (state.timeFilter && ['open','lunchStart','lunchEnd','close'].includes(state.timeFilter))
+    ? state.timeFilter
     : null;
   const gradeOrder = ['S','A','B','C','D','E'];
 
@@ -796,9 +857,17 @@ function renderList() {
         onclick="toggleGrade('${k}','${g.key}')">${g.key}</button>`;
     }).join('');
     const gradeRow = `<div style="margin-bottom:5px"><span style="font-size:10px;color:#999">등급</span><br><div style="display:flex;gap:5px;margin-top:4px">${gradeBtns}</div></div>`;
+    const tradeBtns = TRADE_TYPE.map(t => {
+      const active = state.tradeType[k] === t.key;
+      return `<button class="deal-btn${active?' active':''}"
+        style="${active?`background:${t.bg};color:${t.color};border-color:${t.color};font-weight:700`:''}"
+        onclick="toggleTradeType('${k}','${t.key}')">${t.key}</button>`;
+    }).join('');
+    const tradeRow = `<div style="margin-bottom:5px"><span style="font-size:10px;color:#999">거래 유형 (택1)</span><br><div style="display:flex;gap:5px;margin-top:4px">${tradeBtns}</div></div>`;
     const dealBtns = `
       <div style="margin-bottom:5px"><span style="font-size:10px;color:#999">거래 여부 (택1)</span><br><div style="display:flex;gap:5px;margin-top:4px">${dealMainBtns}</div></div>
       ${gradeRow}
+      ${tradeRow}
       <div><span style="font-size:10px;color:#999">태그 (중복 선택)</span><br><div style="display:flex;gap:5px;margin-top:4px">${dealTagBtns}</div></div>`;
 
     card.innerHTML = `
@@ -810,7 +879,11 @@ function renderList() {
           <div class="card-name-row">
             <span class="card-name">${c.name}</span>
             <span class="region-badge" style="background:${bg};color:${color}">${c.region}</span>
-            ${dealBadge}${gradeBadge}${tagBadges}
+            ${dealBadge}${gradeBadge}${(()=>{
+              const tt = state.tradeType[k];
+              const opt = TRADE_TYPE.find(t=>t.key===tt);
+              return opt ? `<span class="deal-badge" style="color:${opt.color};background:${opt.bg};border-color:${opt.color}40">${opt.key}</span>` : '';
+            })()}${tagBadges}
             ${(()=>{
               const vc = state.visitCheck[k]||{};
               const done = ['morning','lunch','afternoon'].filter(s=>vc[s]).length;
@@ -818,6 +891,12 @@ function renderList() {
               const color = done===3 ? '#2E9E5B' : '#E0A500';
               const bg = done===3 ? '#E8F9F0' : '#FFF8E1';
               return `<span class="deal-badge" style="color:${color};background:${bg};border-color:${color}40">👣${done}/3</span>`;
+            })()}
+            ${(()=>{
+              const rx = findRx(c.name);
+              if (!rx || rx.status==='유지') return '';
+              const cfg = {거래끊김:{c:'#D45C2A',b:'#FFF0E8',t:'💊끊김'}, 감소:{c:'#E0A500',b:'#FFF8E1',t:'💊감소'}, 증가:{c:'#2E9E5B',b:'#E8F9F0',t:'💊증가'}}[rx.status];
+              return cfg ? `<span class="deal-badge" style="color:${cfg.c};background:${cfg.b};border-color:${cfg.c}40">${cfg.t}</span>` : '';
             })()}
             ${hasNote?'<span class="note-icon">📝</span>':''}
           </div>
@@ -899,8 +978,8 @@ function renderList() {
                 </div>
                 <input type="text" value="${isCustom?val:''}" placeholder="직접입력 (예: 10:30)"
                   data-schedule-key="${k}" data-schedule-field="${field}"
-                  oninput="saveSchedule('${k}','${field}',this.value,false)" onchange="saveSchedule('${k}','${field}',this.value,false)"
-                  onblur="saveSchedule('${k}','${field}',this.value,true)"
+                  oninput="saveScheduleCustom('${k}','${field}',this.value,false)"
+                  onblur="saveScheduleCustom('${k}','${field}',this.value,true)"
                   style="width:100%;box-sizing:border-box;padding:6px 8px;border-radius:8px;border:1.5px solid ${isCustom?'#4F86C6':'#DDE1E7'};font-size:12px;outline:none;font-family:inherit;background:white;"/>
               </div>`;
             }).join('')}
@@ -915,6 +994,28 @@ function renderList() {
               style="width:100%;box-sizing:border-box;padding:6px 8px;border-radius:8px;border:1px solid #DDE1E7;font-size:12px;outline:none;font-family:inherit;background:white;"/>
           </div>
         </div>
+        ${(()=>{
+          const rx = findRx(c.name);
+          if (!rx) return '';
+          const statusColor = {거래끊김:'#D45C2A', 감소:'#E0A500', 증가:'#2E9E5B', 유지:'#888'}[rx.status];
+          const statusBg = {거래끊김:'#FFF0E8', 감소:'#FFF8E1', 증가:'#E8F9F0', 유지:'#F0F0F0'}[rx.status];
+          const years = Object.entries(rx.yearTotal).sort();
+          return `<div style="margin-bottom:10px;background:white;border-radius:10px;padding:10px 12px;border:1px solid #EAEDF0;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+              <span style="font-size:12px;font-weight:700;color:#1C2A3A;">💊 처방 분석</span>
+              <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;color:${statusColor};background:${statusBg};">${rx.status}</span>
+            </div>
+            <div style="font-size:11px;color:#555;margin-bottom:6px;">
+              최근 월평균 <b>${Math.round(rx.recentTotal/12).toLocaleString()}원</b>
+              ${rx.prevTotal>0 ? `<span style="color:#999;">(직전 ${Math.round(rx.prevTotal/12).toLocaleString()}원)</span>`:''}
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;">
+              ${years.map(([y,v])=>`<span style="font-size:10px;background:#F4F6FA;border-radius:6px;padding:3px 7px;color:#666;">${y}: ${Math.round(v).toLocaleString()}</span>`).join('')}
+            </div>
+            <div style="font-size:10px;color:#888;margin-bottom:3px;">주요 품목</div>
+            ${rx.topProds.map(({p,v})=>`<div style="font-size:11px;color:#555;display:flex;justify-content:space-between;padding:2px 0;"><span>${p}</span><span style="color:#888;">${v.toLocaleString()}</span></div>`).join('')}
+          </div>`;
+        })()}
         <textarea class="note-area" placeholder="메모 (인수인계 내용, 담당자, 특이사항 등)"
 
           oninput="saveNote('${k}',this.value)">${state.notes[k]||''}</textarea>
@@ -925,13 +1026,17 @@ function renderList() {
 }
 
 function toggleCard(k) {
-  // 닫기 전 입력중인 schedule 값 강제 저장
-  if (state.openKey && state.openKey !== k) {
+  // 닫기 전 직접입력칸에 실제 값이 있을 때만 저장 (버튼 선택값 덮어쓰기 방지)
+  if (state.openKey) {
     const inputs = document.querySelectorAll('[data-schedule-key]');
     inputs.forEach(el => {
       const sk = el.dataset.scheduleKey;
       const sf = el.dataset.scheduleField;
-      if (sk && sf) saveSchedule(sk, sf, el.value, false);
+      const v = el.value.trim();
+      // 값 있을 때만 저장 (빈 input이 버튼 선택값 덮어쓰지 않게)
+      if (sk && sf && v) saveSchedule(sk, sf, v, false);
+      // 휴무일은 비워도 저장 (지우기 허용)
+      else if (sk && sf === 'off') saveSchedule(sk, sf, v, false);
     });
   }
   state.openKey = state.openKey===k ? null : k;
@@ -1104,7 +1209,7 @@ function render() {
 function exportJSON() {
   const now = new Date();
   const ts = now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+'_'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0');
-  const data = { exportedAt: now.toISOString(), dealStatus: state.dealStatus, dealTags: state.dealTags, grade: state.grade, sales: state.sales, visited: state.visited, notes: state.notes, schedule: state.schedule, visitCheck: state.visitCheck };
+  const data = { exportedAt: now.toISOString(), dealStatus: state.dealStatus, dealTags: state.dealTags, grade: state.grade, sales: state.sales, visited: state.visited, notes: state.notes, schedule: state.schedule, visitCheck: state.visitCheck, tradeType: state.tradeType, rxData: state.rxData };
   const json = JSON.stringify(data, null, 2);
   const a = document.createElement('a');
   a.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
@@ -1113,6 +1218,106 @@ function exportJSON() {
   a.click();
   document.body.removeChild(a);
   showToast('💾 백업 완료!');
+}
+
+// ===================== 처방현황 업로드/분석 =====================
+function normName(s) {
+  // 이름 정규화: 정신건강의학과/정신과 통일, 공백/괄호 제거
+  return (s||'').replace(/\s/g,'')
+    .replace(/정신건강의학과/g,'정신과')
+    .replace(/의원|병원|\(.*?\)/g,'')
+    .toLowerCase();
+}
+
+async function importRx(event) {
+  const files = Array.from(event.target.files);
+  if (!files.length) return;
+  showToast('💊 처방현황 분석 중...');
+
+  // 거래처별 연-월 매출 누적: {name: {product: {ym: amount}}}
+  const raw = {};
+
+  for (const file of files) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+    if (!rows.length) continue;
+    const header = rows[0];
+    // 월 컬럼 인덱스 찾기 (YYYY년MM월 형태)
+    const monthCols = [];
+    header.forEach((h,i) => {
+      const m = String(h).match(/(\d{4})년(\d{2})월/);
+      if (m) monthCols.push({idx:i, ym:m[1]+'-'+m[2]});
+    });
+    // 데이터 행
+    for (let r=1; r<rows.length; r++) {
+      const row = rows[r];
+      const name = row[2], prod = row[6];
+      if (!name || !prod) continue;
+      if (!raw[name]) raw[name] = {};
+      if (!raw[name][prod]) raw[name][prod] = {};
+      monthCols.forEach(({idx,ym}) => {
+        const v = Number(row[idx])||0;
+        raw[name][prod][ym] = (raw[name][prod][ym]||0) + v;
+      });
+    }
+  }
+
+  // 거래처별 연도 매출 집계 + 상태 판정
+  const result = {};
+  for (const name in raw) {
+    const yearTotal = {};   // {2022: total, ...}
+    const prodTotal = {};   // {product: total}
+    let recentTotal = 0;    // 최근 12개월 (2025-06 ~ 2026-05)
+    let prevTotal = 0;      // 직전 12개월 (2024-06 ~ 2025-05)
+
+    for (const prod in raw[name]) {
+      let pSum = 0;
+      for (const ym in raw[name][prod]) {
+        const amt = raw[name][prod][ym];
+        pSum += amt;
+        const year = ym.slice(0,4);
+        yearTotal[year] = (yearTotal[year]||0) + amt;
+        // 최근/직전 12개월 판정
+        if (ym >= '2025-06' && ym <= '2026-05') recentTotal += amt;
+        else if (ym >= '2024-06' && ym <= '2025-05') prevTotal += amt;
+      }
+      if (pSum>0) prodTotal[prod] = pSum;
+    }
+
+    // 상태 판정
+    let status = '유지';
+    const pastYears = Object.entries(yearTotal).filter(([y,v])=>v>0);
+    if (recentTotal===0 && pastYears.length>0) status = '거래끊김';
+    else if (recentTotal > prevTotal*1.1 && prevTotal>0) status = '증가';
+    else if (recentTotal < prevTotal*0.9 && recentTotal>0) status = '감소';
+
+    // 상위 품목 3개
+    const topProds = Object.entries(prodTotal).sort((a,b)=>b[1]-a[1]).slice(0,5)
+      .map(([p,v])=>({p, v:Math.round(v)}));
+
+    result[name] = {
+      yearTotal, recentTotal:Math.round(recentTotal), prevTotal:Math.round(prevTotal),
+      status, topProds, norm:normName(name)
+    };
+  }
+
+  state.rxData = result;
+  saveToStorage();
+  render();
+  event.target.value = '';
+  showToast(`💊 처방현황 분석 완료! ${Object.keys(result).length}개 거래처`);
+}
+
+// 거래처명으로 rxData 찾기 (유사 매칭)
+function findRx(clinicName) {
+  if (state.rxData[clinicName]) return state.rxData[clinicName];
+  const norm = normName(clinicName);
+  for (const name in state.rxData) {
+    if (state.rxData[name].norm === norm) return state.rxData[name];
+  }
+  return null;
 }
 
 function importJSON(event) {
@@ -1144,7 +1349,7 @@ function importJSON(event) {
 function exportCSV() {
   const now = new Date();
   const ts = now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0');
-  const headers = ['번호','의원명','지역','주소','거래여부','등급','태그','확인여부','오픈','점심시작','점심종료','진료종료','휴무일','메모',...PRODUCTS];
+  const headers = ['번호','의원명','지역','주소','거래여부','등급','거래유형','태그','확인여부','오픈','점심시작','점심종료','진료종료','휴무일','메모',...PRODUCTS];
   const rows = CLINICS.map((c, i) => {
     const k = ckey(c);
     const deal = state.dealStatus[k] || '';
@@ -1154,7 +1359,8 @@ function exportCSV() {
     const note = (state.notes[k] || '').replace(/"/g,'""').replace(/\n/g,' ');
     const salesRow = PRODUCTS.map(p=>(state.sales[k]||{})[p]||'');
     const sch = state.schedule[k]||{};
-    return [i+1, '"'+c.name+'"', '"'+c.region+'"', '"'+c.address+'"', deal, grade, tags, visited,
+    const trade = state.tradeType[k]||'';
+    return [i+1, '"'+c.name+'"', '"'+c.region+'"', '"'+c.address+'"', deal, grade, trade, tags, visited,
       sch.open||'', sch.lunchStart||'', sch.lunchEnd||'', sch.close||'', sch.off||'', '"'+note+'"', ...salesRow].join(',');
   });
   const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
