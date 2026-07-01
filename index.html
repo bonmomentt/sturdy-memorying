@@ -126,12 +126,12 @@ body { font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif; background:#
 const REGION_COLOR = {
   "관악구":"#3B7DD8","동작구":"#2E9E5B","서초구":"#D45C2A",
   "수원 팔달구":"#8B44C7","수원 장안구":"#B5292A",
-  "수원 영통구":"#C47D0B","수원 권선구":"#16876E"
+  "수원 영통구":"#C47D0B","수원 권선구":"#16876E","미분류":"#999999"
 };
 const REGION_BG = {
   "관악구":"#EBF2FF","동작구":"#E8F9F0","서초구":"#FFF0E8",
   "수원 팔달구":"#F5EEFF","수원 장안구":"#FFECEC",
-  "수원 영통구":"#FFF8E1","수원 권선구":"#E6FAF5"
+  "수원 영통구":"#FFF8E1","수원 권선구":"#E6FAF5","미분류":"#F0F0F0"
 };
 // 거래/비거래 (단일 선택)
 const DEAL_MAIN = [
@@ -156,7 +156,7 @@ const TRADE_TYPE = [
   {key:'직거래', color:'#00838F', bg:'#E0F7FA'},
   {key:'도매',   color:'#EF6C00', bg:'#FFF3E0'},
 ];
-const REGIONS = ["관악구","동작구","서초구","수원 팔달구","수원 장안구","수원 영통구","수원 권선구"];
+const REGIONS = ["관악구","동작구","서초구","수원 팔달구","수원 장안구","수원 영통구","수원 권선구","미분류"];
 const PRODUCTS = ['월 약제비','가스피란','도네+메만','도네','멀타','메만','부스피','설트','시탈로','아리피','아토목','올란','징카','콜리날','쿠티아','플루옥'];
 
 const CLINICS = [
@@ -824,9 +824,15 @@ function renderList() {
     const card = document.createElement('div');
     card.className = 'card' + (isOpen?' open':'');
     card.style.setProperty('--c', color);
+    // 비거래처는 파스텔 회색 배경 + 흐리게
+    const isNonTrade = deal === '비거래처';
+    if (isNonTrade) {
+      card.style.background = '#F2F2F0';
+      card.style.opacity = '0.7';
+    }
 
     // 뱃지 HTML (거래상태 + 태그들)
-    const dealBadge = dealMainOpt
+    const dealBadge = (dealMainOpt && dealMainOpt.key !== '비거래처')
       ? `<span class="deal-badge" style="color:${dealMainOpt.color};background:${dealMainOpt.bg};border-color:${dealMainOpt.color}40">${dealMainOpt.key}</span>` : '';
     const gradeVal = state.grade[k];
     const gradeOpt = GRADES.find(g=>g.key===gradeVal);
@@ -1007,13 +1013,29 @@ function renderList() {
             </div>
             <div style="font-size:11px;color:#555;margin-bottom:6px;">
               최근 월평균 <b>${Math.round(rx.recentTotal/12).toLocaleString()}원</b>
-              ${rx.prevTotal>0 ? `<span style="color:#999;">(직전 ${Math.round(rx.prevTotal/12).toLocaleString()}원)</span>`:''}
+              ${rx.lastMonthAmt>0 ? `<span style="color:#999;">(최근 ${rx.lastYm ? rx.lastYm.slice(2).replace('-','.') : ''} ${rx.lastMonthAmt.toLocaleString()}원)</span>`:''}
             </div>
+            <div style="font-size:10px;color:#888;margin-bottom:3px;">연도별 월평균</div>
             <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;">
-              ${years.map(([y,v])=>`<span style="font-size:10px;background:#F4F6FA;border-radius:6px;padding:3px 7px;color:#666;">${y}: ${Math.round(v).toLocaleString()}</span>`).join('')}
+              ${years.map(([y,v])=>{
+                const mc = (rx.yearMonthCount||{})[y] || 12;
+                return `<span style="font-size:10px;background:#F4F6FA;border-radius:6px;padding:3px 7px;color:#666;">${y}: ${Math.round(v/mc).toLocaleString()}/월</span>`;
+              }).join('')}
             </div>
-            <div style="font-size:10px;color:#888;margin-bottom:3px;">주요 품목</div>
-            ${rx.topProds.map(({p,v})=>`<div style="font-size:11px;color:#555;display:flex;justify-content:space-between;padding:2px 0;"><span>${p}</span><span style="color:#888;">${v.toLocaleString()}</span></div>`).join('')}
+            <div style="font-size:10px;color:#888;margin-bottom:3px;">주요 품목 (연도별 월평균)</div>
+            ${rx.topProds.map(({p,v})=>{
+              const py = (rx.prodYear||{})[p] || {};
+              const yrs = Object.keys(py).sort();
+              const detail = yrs.map(y=>{
+                const mc = (rx.yearMonthCount||{})[y] || 12;
+                const avg = Math.round(py[y]/mc);
+                return avg>0 ? `${y.slice(2)}년 ${avg.toLocaleString()}` : null;
+              }).filter(Boolean).join('  ·  ');
+              return `<div style="font-size:11px;color:#555;padding:4px 0;border-top:1px solid #F4F6FA;">
+                <div style="font-weight:600;">${p}</div>
+                <div style="font-size:10px;color:#999;margin-top:1px;">${detail}</div>
+              </div>`;
+            }).join('')}
           </div>`;
         })()}
         <textarea class="note-area" placeholder="메모 (인수인계 내용, 담당자, 특이사항 등)"
@@ -1222,10 +1244,14 @@ function exportJSON() {
 
 // ===================== 처방현황 업로드/분석 =====================
 function normName(s) {
-  // 이름 정규화: 정신건강의학과/정신과 통일, 공백/괄호 제거
-  return (s||'').replace(/\s/g,'')
+  // 이름 정규화: 공백/괄호/접미사 제거, 정신과 통일
+  return (s||'')
+    .replace(/\(.*?\)/g,'')      // 괄호 내용 제거
+    .replace(/\s/g,'')            // 공백 제거
     .replace(/정신건강의학과/g,'정신과')
-    .replace(/의원|병원|\(.*?\)/g,'')
+    .replace(/신경정신과/g,'정신과')
+    .replace(/의원$|병원$|점$|의$/g,'')  // 끝 접미사
+    .replace(/의원|병원/g,'')
     .toLowerCase();
 }
 
@@ -1234,9 +1260,13 @@ async function importRx(event) {
   if (!files.length) return;
   showToast('💊 처방현황 분석 중...');
 
-  // 거래처별 연-월 매출 누적: {name: {product: {ym: amount}}}
-  const raw = {};
+  // 거래처코드 기반 집계: {code: {product: {ym: amount}}}
+  const raw = {};        // code → product → ym → amount
+  const codeName = {};   // code → 대표 거래처명 (최신)
+  const codeFileOrder = {}; // code → 파일순서(최신 판단용)
 
+  // 파일 정렬: 파일명 번호 큰 게 최신 아니므로 헤더 연월로 판단
+  const fileData = [];
   for (const file of files) {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, {type:'array'});
@@ -1244,47 +1274,77 @@ async function importRx(event) {
     const rows = XLSX.utils.sheet_to_json(ws, {header:1});
     if (!rows.length) continue;
     const header = rows[0];
-    // 월 컬럼 인덱스 찾기 (YYYY년MM월 형태)
     const monthCols = [];
     header.forEach((h,i) => {
       const m = String(h).match(/(\d{4})년(\d{2})월/);
       if (m) monthCols.push({idx:i, ym:m[1]+'-'+m[2]});
     });
-    // 데이터 행
+    // 이 파일의 최신 연월 (대표이름 판단용)
+    const maxYm = monthCols.length ? monthCols[monthCols.length-1].ym : '0000-00';
+    fileData.push({rows, monthCols, maxYm});
+  }
+
+  for (const {rows, monthCols, maxYm} of fileData) {
     for (let r=1; r<rows.length; r++) {
       const row = rows[r];
-      const name = row[2], prod = row[6];
-      if (!name || !prod) continue;
-      if (!raw[name]) raw[name] = {};
-      if (!raw[name][prod]) raw[name][prod] = {};
+      const code = row[0], name = row[2], prod = row[6];
+      if (!code || !prod) continue;
+      const key = String(code);
+      if (!raw[key]) raw[key] = {};
+      if (!raw[key][prod]) raw[key][prod] = {};
       monthCols.forEach(({idx,ym}) => {
         const v = Number(row[idx])||0;
-        raw[name][prod][ym] = (raw[name][prod][ym]||0) + v;
+        raw[key][prod][ym] = (raw[key][prod][ym]||0) + v;
       });
+      // 대표이름: 가장 최신 파일의 이름 사용
+      if (name && (!codeFileOrder[key] || maxYm > codeFileOrder[key])) {
+        codeName[key] = name;
+        codeFileOrder[key] = maxYm;
+      }
     }
   }
 
-  // 거래처별 연도 매출 집계 + 상태 판정
+  // 거래처별 연도 매출 집계 + 상태 판정 (코드 기준 순회)
   const result = {};
-  for (const name in raw) {
+  for (const code in raw) {
+    const name = codeName[code] || code;
     const yearTotal = {};   // {2022: total, ...}
-    const prodTotal = {};   // {product: total}
+    const yearMonths = {};  // {2022: Set(월), ...} 실제 데이터 있는 개월수
+    const prodTotal = {};   // {product: total} 전체누적
+    const prodYear = {};    // {product: {year: total}} 연도별
     let recentTotal = 0;    // 최근 12개월 (2025-06 ~ 2026-05)
     let prevTotal = 0;      // 직전 12개월 (2024-06 ~ 2025-05)
 
-    for (const prod in raw[name]) {
+    for (const prod in raw[code]) {
       let pSum = 0;
-      for (const ym in raw[name][prod]) {
-        const amt = raw[name][prod][ym];
+      for (const ym in raw[code][prod]) {
+        const amt = raw[code][prod][ym];
         pSum += amt;
         const year = ym.slice(0,4);
         yearTotal[year] = (yearTotal[year]||0) + amt;
-        // 최근/직전 12개월 판정
+        if (!yearMonths[year]) yearMonths[year] = new Set();
+        if (amt > 0) yearMonths[year].add(ym);
+        if (!prodYear[prod]) prodYear[prod] = {};
+        prodYear[prod][year] = (prodYear[prod][year]||0) + amt;
         if (ym >= '2025-06' && ym <= '2026-05') recentTotal += amt;
         else if (ym >= '2024-06' && ym <= '2025-05') prevTotal += amt;
       }
       if (pSum>0) prodTotal[prod] = pSum;
     }
+    // 연도별 개월수 (데이터 있는 달 수, 최소 1)
+    const yearMonthCount = {};
+    for (const y in yearMonths) yearMonthCount[y] = yearMonths[y].size || 1;
+
+    // 가장 최근 처방 있었던 월의 금액
+    const allYms = {};  // ym → total
+    for (const prod in raw[code]) {
+      for (const ym in raw[code][prod]) {
+        allYms[ym] = (allYms[ym]||0) + raw[code][prod][ym];
+      }
+    }
+    const sortedYms = Object.keys(allYms).filter(ym=>allYms[ym]>0).sort();
+    const lastYm = sortedYms.length ? sortedYms[sortedYms.length-1] : null;
+    const lastMonthAmt = lastYm ? Math.round(allYms[lastYm]) : 0;
 
     // 상태 판정
     let status = '유지';
@@ -1293,29 +1353,66 @@ async function importRx(event) {
     else if (recentTotal > prevTotal*1.1 && prevTotal>0) status = '증가';
     else if (recentTotal < prevTotal*0.9 && recentTotal>0) status = '감소';
 
-    // 상위 품목 3개
+    // 상위 품목 5개 (전체 누적 기준으로 선정, 표시는 연도별 월평균)
     const topProds = Object.entries(prodTotal).sort((a,b)=>b[1]-a[1]).slice(0,5)
       .map(([p,v])=>({p, v:Math.round(v)}));
 
     result[name] = {
-      yearTotal, recentTotal:Math.round(recentTotal), prevTotal:Math.round(prevTotal),
-      status, topProds, norm:normName(name)
+      yearTotal, yearMonthCount, recentTotal:Math.round(recentTotal), prevTotal:Math.round(prevTotal),
+      lastYm, lastMonthAmt,
+      status, topProds, prodYear, norm:normName(name)
     };
   }
 
   state.rxData = result;
+
+  // 미매칭 처방현황 거래처를 관리장에 자동 추가
+  let added = 0;
+  for (const rxName in result) {
+    // 이미 매칭되는 관리장 거래처가 있으면 skip
+    let matched = false;
+    const rxNorm = result[rxName].norm;
+    for (const cl of CLINICS) {
+      const cn = normName(cl.name);
+      if (cn === rxNorm || (cn && rxNorm && (cn.includes(rxNorm)||rxNorm.includes(cn)) && Math.min(cn.length,rxNorm.length)>=2)) {
+        matched = true; break;
+      }
+    }
+    if (!matched) {
+      // 지역 추정: 이름/데이터로는 알 수 없으니 '미분류'
+      CLINICS.push({
+        name: rxName,
+        address: '(처방현황 자동추가 - 주소 미입력)',
+        region: '미분류',
+        lat: 37.42, lng: 127.00,
+        custom: true
+      });
+      added++;
+    }
+  }
+
   saveToStorage();
+  buildRegionTabs();
   render();
   event.target.value = '';
-  showToast(`💊 처방현황 분석 완료! ${Object.keys(result).length}개 거래처`);
+  showToast(`💊 분석 완료! ${Object.keys(result).length}개 거래처${added?` · ${added}개 신규 추가`:''}`);
 }
 
-// 거래처명으로 rxData 찾기 (유사 매칭)
+// 거래처명으로 rxData 찾기 (다단계 유사 매칭)
 function findRx(clinicName) {
+  // 1) 정확히 일치
   if (state.rxData[clinicName]) return state.rxData[clinicName];
   const norm = normName(clinicName);
+  // 2) 정규화 일치
   for (const name in state.rxData) {
     if (state.rxData[name].norm === norm) return state.rxData[name];
+  }
+  // 3) 포함 관계 (한쪽이 다른 쪽을 포함)
+  for (const name in state.rxData) {
+    const rn = state.rxData[name].norm;
+    if (rn && norm && (rn.includes(norm) || norm.includes(rn)) && Math.min(rn.length,norm.length)>=2) {
+      return state.rxData[name];
+    }
   }
   return null;
 }
