@@ -338,6 +338,7 @@ const state = {
   visitCheck: {},
   tradeType: {},
   rxData: {},
+  rxLink: {},
   openKey: null,
 };
 
@@ -357,6 +358,7 @@ const state = {
       if (d.visitCheck) Object.assign(state.visitCheck, d.visitCheck);
       if (d.tradeType)  Object.assign(state.tradeType,  d.tradeType);
       if (d.rxData)     Object.assign(state.rxData,     d.rxData);
+      if (d.rxLink)     Object.assign(state.rxLink,     d.rxLink);
     }
   } catch(e) { console.warn('localStorage 로드 실패', e); }
 })();
@@ -375,6 +377,7 @@ function saveToStorage() {
       visitCheck: state.visitCheck,
       tradeType:  state.tradeType,
       rxData:     state.rxData,
+      rxLink:     state.rxLink,
     }));
   } catch(e) { console.warn('localStorage 저장 실패', e); }
 }
@@ -513,11 +516,11 @@ function matchTimeFilter(c) {
     return state.tradeType[k] === '직거래';
   }
   if (state.timeFilter === 'rx끊김') {
-    const rx = findRx(c.name);
+    const rx = findRx(c.name, ckey(c));
     return rx && rx.status === '거래끊김';
   }
   if (state.timeFilter === 'rx증가') {
-    const rx = findRx(c.name);
+    const rx = findRx(c.name, ckey(c));
     return rx && rx.status === '증가';
   }
   return true;
@@ -899,7 +902,7 @@ function renderList() {
               return `<span class="deal-badge" style="color:${color};background:${bg};border-color:${color}40">👣${done}/3</span>`;
             })()}
             ${(()=>{
-              const rx = findRx(c.name);
+              const rx = findRx(c.name, k);
               if (!rx || rx.status==='유지') return '';
               const cfg = {거래끊김:{c:'#D45C2A',b:'#FFF0E8',t:'💊끊김'}, 감소:{c:'#E0A500',b:'#FFF8E1',t:'💊감소'}, 증가:{c:'#2E9E5B',b:'#E8F9F0',t:'💊증가'}}[rx.status];
               return cfg ? `<span class="deal-badge" style="color:${cfg.c};background:${cfg.b};border-color:${cfg.c}40">${cfg.t}</span>` : '';
@@ -1001,7 +1004,19 @@ function renderList() {
           </div>
         </div>
         ${(()=>{
-          const rx = findRx(c.name);
+          const rx = findRx(c.name, k);
+          const cands = rxCandidates(c.name);
+          // 후보 여러개인데 아직 연결 안했으면 선택 UI
+          if (!rx && cands.length > 1 && !(state.rxLink && state.rxLink[k])) {
+            return `<div style="margin-bottom:10px;background:#FFF8E1;border-radius:10px;padding:10px 12px;border:1px solid #FFE082;">
+              <div style="font-size:11px;font-weight:700;color:#B5860A;margin-bottom:6px;">💊 처방 데이터 연결 필요</div>
+              <div style="font-size:10px;color:#888;margin-bottom:6px;">같은 이름 후보가 ${cands.length}개예요. 이 거래처의 처방 데이터를 골라주세요.</div>
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                ${cands.map(name=>`<button onclick="linkRx('${k}','${name.replace(/'/g,"\\'")}')" style="text-align:left;padding:6px 10px;border-radius:8px;border:1px solid #DDE1E7;background:white;font-size:11px;cursor:pointer;font-family:inherit;">${name} <span style="color:#999;">(${state.rxData[name].status}, 최근 ${Math.round(state.rxData[name].recentTotal/12).toLocaleString()}/월)</span></button>`).join('')}
+                <button onclick="linkRx('${k}','__none__')" style="text-align:left;padding:6px 10px;border-radius:8px;border:1px solid #DDE1E7;background:#F8F8F8;font-size:11px;cursor:pointer;font-family:inherit;color:#999;">연결 안 함</button>
+              </div>
+            </div>`;
+          }
           if (!rx) return '';
           const statusColor = {거래끊김:'#D45C2A', 감소:'#E0A500', 증가:'#2E9E5B', 유지:'#888'}[rx.status];
           const statusBg = {거래끊김:'#FFF0E8', 감소:'#FFF8E1', 증가:'#E8F9F0', 유지:'#F0F0F0'}[rx.status];
@@ -1022,6 +1037,10 @@ function renderList() {
                 return `<span style="font-size:10px;background:#F4F6FA;border-radius:6px;padding:3px 7px;color:#666;">${y}: ${Math.round(v/mc).toLocaleString()}/월</span>`;
               }).join('')}
             </div>
+            ${(()=>{
+              const cands=rxCandidates(c.name);
+              return cands.length>1 ? `<button onclick="unlinkRx('${k}')" style="font-size:9px;color:#999;background:none;border:1px solid #E0E0E0;border-radius:6px;padding:2px 8px;margin-bottom:6px;cursor:pointer;font-family:inherit;">🔗 연결 변경</button>` : '';
+            })()}
             <div style="font-size:10px;color:#888;margin-bottom:3px;">주요 품목 (연도별 월평균)</div>
             ${rx.topProds.map(({p,v})=>{
               const py = (rx.prodYear||{})[p] || {};
@@ -1231,7 +1250,7 @@ function render() {
 function exportJSON() {
   const now = new Date();
   const ts = now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+'_'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0');
-  const data = { exportedAt: now.toISOString(), dealStatus: state.dealStatus, dealTags: state.dealTags, grade: state.grade, sales: state.sales, visited: state.visited, notes: state.notes, schedule: state.schedule, visitCheck: state.visitCheck, tradeType: state.tradeType, rxData: state.rxData };
+  const data = { exportedAt: now.toISOString(), dealStatus: state.dealStatus, dealTags: state.dealTags, grade: state.grade, sales: state.sales, visited: state.visited, notes: state.notes, schedule: state.schedule, visitCheck: state.visitCheck, tradeType: state.tradeType, rxData: state.rxData, rxLink: state.rxLink };
   const json = JSON.stringify(data, null, 2);
   const a = document.createElement('a');
   a.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
@@ -1374,9 +1393,7 @@ async function importRx(event) {
     const rxNorm = result[rxName].norm;
     for (const cl of CLINICS) {
       const cn = normName(cl.name);
-      if (cn === rxNorm || (cn && rxNorm && (cn.includes(rxNorm)||rxNorm.includes(cn)) && Math.min(cn.length,rxNorm.length)>=2)) {
-        matched = true; break;
-      }
+      if (cn === rxNorm) { matched = true; break; }
     }
     if (!matched) {
       // 지역 추정: 이름/데이터로는 알 수 없으니 '미분류'
@@ -1398,23 +1415,50 @@ async function importRx(event) {
   showToast(`💊 분석 완료! ${Object.keys(result).length}개 거래처${added?` · ${added}개 신규 추가`:''}`);
 }
 
-// 거래처명으로 rxData 찾기 (다단계 유사 매칭)
-function findRx(clinicName) {
+// 거래처명으로 rxData 찾기 (정확 매칭 + 수동 링크)
+function findRx(clinicName, clinicKey) {
+  // 0) 수동 연결이 있으면 최우선
+  if (clinicKey && state.rxLink && state.rxLink[clinicKey]) {
+    const linked = state.rxLink[clinicKey];
+    if (linked === '__none__') return null; // 연결 안함 지정
+    if (state.rxData[linked]) return state.rxData[linked];
+  }
   // 1) 정확히 일치
   if (state.rxData[clinicName]) return state.rxData[clinicName];
+  // 2) 정규화 완전 일치만 (포함매칭 제거)
   const norm = normName(clinicName);
-  // 2) 정규화 일치
+  const matches = [];
   for (const name in state.rxData) {
-    if (state.rxData[name].norm === norm) return state.rxData[name];
+    if (state.rxData[name].norm === norm) matches.push(name);
   }
-  // 3) 포함 관계 (한쪽이 다른 쪽을 포함)
+  // 정확히 하나만 매칭될 때만 자동 연결 (여러 개면 수동 선택 필요)
+  if (matches.length === 1) return state.rxData[matches[0]];
+  return null;
+}
+
+function linkRx(clinicKey, rxName) {
+  if (!state.rxLink) state.rxLink = {};
+  state.rxLink[clinicKey] = rxName;
+  saveToStorage();
+  renderList();
+}
+function unlinkRx(clinicKey) {
+  if (state.rxLink) delete state.rxLink[clinicKey];
+  saveToStorage();
+  renderList();
+}
+
+// 특정 거래처에 매칭 후보가 여러 개인지 (수동선택 필요 여부)
+function rxCandidates(clinicName) {
+  const norm = normName(clinicName);
+  const list = [];
   for (const name in state.rxData) {
     const rn = state.rxData[name].norm;
-    if (rn && norm && (rn.includes(norm) || norm.includes(rn)) && Math.min(rn.length,norm.length)>=2) {
-      return state.rxData[name];
+    if (rn === norm || (rn && norm && (rn.includes(norm) || norm.includes(rn)) && Math.min(rn.length,norm.length)>=2)) {
+      list.push(name);
     }
   }
-  return null;
+  return list;
 }
 
 function importJSON(event) {
