@@ -83,6 +83,22 @@ body { font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif; background:#
 .popup-links { display:flex; gap:6px; }
 .popup-link { padding:5px 10px; border-radius:8px; font-size:11px; font-weight:600; text-decoration:none; }
 .custom-marker { width:28px; height:28px; border-radius:50%; border:2.5px solid white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:white; box-shadow:0 2px 6px rgba(0,0,0,0.3); }
+
+/* 스케줄 탭 */
+.sched-legend{font-size:11px;color:#888;padding:8px 14px;background:#FAF8F4;line-height:1.5;}
+.sched-wrap{overflow:auto;padding:8px;height:calc(100vh - 200px);}
+#sched-table{border-collapse:collapse;min-width:100%;}
+#sched-table th{color:white;font-size:11px;padding:6px 3px;position:sticky;top:0;z-index:10;white-space:nowrap;}
+#sched-table th.s-timeh{background:#1C2A3A;left:0;z-index:20;min-width:46px;}
+#sched-table th.s-sub{font-size:10px;}
+#sched-table td.s-time{background:#F0EDE8;font-size:11px;font-weight:700;color:#555;text-align:center;padding:4px;position:sticky;left:0;white-space:nowrap;min-width:46px;z-index:5;}
+#sched-table td.s-cell{border:1px solid #E5E2DC;vertical-align:top;padding:2px;min-width:92px;height:34px;}
+#sched-table td.s-cell.s-dragover{background:#FFF8DC !important;outline:2px dashed #C9A227;}
+.s-gold-row td.s-cell{background:#FFFBEB;}
+#sched-table td.s-time.s-gold{background:#FFF3C4 !important;color:#B5860A;}
+.s-chip{display:block;font-size:10px;padding:4px 6px;border-radius:6px;margin:2px 0;cursor:grab;line-height:1.25;border-left:3px solid;touch-action:pan-y;user-select:none;}
+.s-chip.s-dragging{opacity:0.35;}
+.s-chip.s-floating{position:fixed;z-index:9999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.25);opacity:0.9;transform:scale(1.08);}
 </style>
 </head>
 <body>
@@ -95,6 +111,7 @@ body { font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif; background:#
   <div id="view-btns" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
     <button class="view-btn active" onclick="switchView('list')">📋 목록</button>
     <button class="view-btn" onclick="switchView('map')">🗺️ 지도</button>
+    <button class="view-btn" onclick="switchView('sched')">📋 스케줄</button>
     <button class="view-btn" style="background:#E05A2B" onclick="openAddModal()" title="의원 추가">➕ 추가</button>
     <button class="view-btn" style="background:#16876E" onclick="exportJSON()" title="JSON 백업">💾 백업</button>
     <button class="view-btn" style="background:#8B44C7" onclick="document.getElementById('import-input').click()" title="JSON 불러오기">📂 불러오기</button>
@@ -112,6 +129,16 @@ body { font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif; background:#
   <div id="search-count"></div>
 </div>
 
+<div id="sched-view" style="display:none;">
+  <div class="sched-legend">⭐<b>황금타임</b> 8:30~10:30 · 11:30~14:00 · 16:30~17:30 &nbsp;|&nbsp; 빈칸 탭=추가 · 칩 더블클릭/길게=수정·삭제</div>
+  <div style="padding:6px 10px;display:flex;gap:6px;">
+    <button class="view-btn" style="background:#16876E" onclick="schedExport()">💾 백업</button>
+    <button class="view-btn" style="background:#8B44C7" onclick="document.getElementById('sched-imp').click()">📂 불러오기</button>
+    <button class="view-btn" style="background:#888" onclick="schedReset()">↺ 초기화</button>
+    <input type="file" id="sched-imp" accept=".json" style="display:none" onchange="schedImport(event)"/>
+  </div>
+  <div class="sched-wrap"><table id="sched-table"><thead><tr id="s-h1"></tr><tr id="s-h2"></tr></thead><tbody id="s-tbody"></tbody></table></div>
+</div>
 <div id="map-view">
   <div id="map"></div>
 </div>
@@ -359,6 +386,7 @@ const state = {
       if (d.tradeType)  Object.assign(state.tradeType,  d.tradeType);
       if (d.rxData)     Object.assign(state.rxData,     d.rxData);
       if (d.rxLink)     Object.assign(state.rxLink,     d.rxLink);
+      if (d.schedCells) state.schedCells = d.schedCells;
     }
   } catch(e) { console.warn('localStorage 로드 실패', e); }
 })();
@@ -378,6 +406,7 @@ function saveToStorage() {
       tradeType:  state.tradeType,
       rxData:     state.rxData,
       rxLink:     state.rxLink,
+      schedCells: state.schedCells,
     }));
   } catch(e) { console.warn('localStorage 저장 실패', e); }
 }
@@ -577,13 +606,20 @@ function switchView(v) {
   state.view = v;
   document.getElementById('map-view').style.display = v==='map'?'block':'none';
   document.getElementById('list-view').style.display = v==='list'?'block':'none';
+  document.getElementById('sched-view').style.display = v==='sched'?'block':'none';
   const sb = document.getElementById('sort-bar');
   if (sb) sb.style.display = v==='list' ? 'block' : 'none';
   const tb = document.getElementById('time-filter-bar');
   if (tb) tb.style.display = v==='list' ? 'block' : 'none';
+  const rt = document.getElementById('region-tabs');
+  const sw = document.getElementById('search-wrap');
+  if (rt) rt.style.display = v==='sched' ? 'none' : 'flex';
+  if (sw) sw.style.display = v==='sched' ? 'none' : 'block';
   document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.view-btn')[v==='list'?0:1].classList.add('active');
+  const idx = {list:0,map:1,sched:2}[v] || 0;
+  document.querySelectorAll('.view-btn')[idx].classList.add('active');
   if (v==='map') { setTimeout(()=>{ map.invalidateSize(); renderMarkers(); },100); }
+  if (v==='sched') { schedRender(); }
 }
 
 // ===================== 검색 =====================
@@ -1250,7 +1286,7 @@ function render() {
 function exportJSON() {
   const now = new Date();
   const ts = now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+'_'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0');
-  const data = { exportedAt: now.toISOString(), dealStatus: state.dealStatus, dealTags: state.dealTags, grade: state.grade, sales: state.sales, visited: state.visited, notes: state.notes, schedule: state.schedule, visitCheck: state.visitCheck, tradeType: state.tradeType, rxData: state.rxData, rxLink: state.rxLink };
+  const data = { exportedAt: now.toISOString(), dealStatus: state.dealStatus, dealTags: state.dealTags, grade: state.grade, sales: state.sales, visited: state.visited, notes: state.notes, schedule: state.schedule, visitCheck: state.visitCheck, tradeType: state.tradeType, rxData: state.rxData, rxLink: state.rxLink, schedCells: state.schedCells };
   const json = JSON.stringify(data, null, 2);
   const a = document.createElement('a');
   a.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
@@ -1530,6 +1566,152 @@ function showToast(msg, isError) {
 }
 
 // ===================== 초기화 =====================
+
+// ===================== 스케줄 탭 =====================
+const S_REGIONS=["수원", "동작", "관악", "서초"];
+const S_TIMES=["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00"];
+const S_RCOLOR={"수원": "#8B44C7", "동작": "#2E9E5B", "관악": "#3B7DD8", "서초": "#D45C2A"};
+const S_RBG={"수원": "#F5EEFF", "동작": "#E8F9F0", "관악": "#EBF2FF", "서초": "#FFF0E8"};
+const S_RNCOL={"수원": 4, "동작": 3, "관악": 3, "서초": 5};
+const S_INIT=[{"region": "수원", "sub": 0, "time": "08:30", "name": "서울아이정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF8E1", "id": "c0"}, {"region": "수원", "sub": 1, "time": "08:30", "name": "수원성심정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF8E1", "id": "c1"}, {"region": "수원", "sub": 2, "time": "08:30", "name": "브리즈정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E6FAF5", "id": "c2"}, {"region": "동작", "sub": 0, "time": "08:30", "name": "나루정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c3"}, {"region": "동작", "sub": 1, "time": "08:30", "name": "가람정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c4"}, {"region": "서초", "sub": 0, "time": "08:30", "name": "나눔정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c5"}, {"region": "서초", "sub": 1, "time": "08:30", "name": "김병후정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c6"}, {"region": "서초", "sub": 2, "time": "08:30", "name": "서초정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c7"}, {"region": "수원", "sub": 0, "time": "09:00", "name": "강지윤정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF8E1", "id": "c8"}, {"region": "수원", "sub": 2, "time": "09:00", "name": "정진정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#F5EEFF", "id": "c9"}, {"region": "동작", "sub": 1, "time": "09:00", "name": "박신영정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#E8F9F0", "id": "c10"}, {"region": "관악", "sub": 1, "time": "09:00", "name": "연세햇살정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c11"}, {"region": "서초", "sub": 0, "time": "09:00", "name": "삼성공감정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c12"}, {"region": "수원", "sub": 0, "time": "09:30", "name": "온쉼표정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF8E1", "id": "c13"}, {"region": "동작", "sub": 1, "time": "09:30", "name": "박언규정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#E8F9F0", "id": "c14"}, {"region": "관악", "sub": 1, "time": "09:30", "name": "야호정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c15"}, {"region": "관악", "sub": 2, "time": "09:30", "name": "야호정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c16"}, {"region": "서초", "sub": 0, "time": "09:30", "name": "이로정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c17"}, {"region": "서초", "sub": 1, "time": "09:30", "name": "서초정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c18"}, {"region": "서초", "sub": 2, "time": "09:30", "name": "서울마음숲정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c19"}, {"region": "동작", "sub": 1, "time": "10:00", "name": "상도숲정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c20"}, {"region": "관악", "sub": 1, "time": "10:00", "name": "마음챙김정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c21"}, {"region": "수원", "sub": 0, "time": "11:00", "name": "연세소울정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFECEC", "id": "c22"}, {"region": "관악", "sub": 1, "time": "11:00", "name": "신림정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#EBF2FF", "id": "c23"}, {"region": "서초", "sub": 0, "time": "11:00", "name": "서초정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c24"}, {"region": "수원", "sub": 0, "time": "11:30", "name": "좋은마음정신과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#FFECEC", "id": "c25"}, {"region": "수원", "sub": 1, "time": "11:30", "name": "강지윤정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF8E1", "id": "c26"}, {"region": "동작", "sub": 1, "time": "11:30", "name": "상도연세정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c27"}, {"region": "관악", "sub": 1, "time": "11:30", "name": "마나스정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c28"}, {"region": "관악", "sub": 2, "time": "11:30", "name": "박신영정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c29"}, {"region": "서초", "sub": 0, "time": "11:30", "name": "연세엘정신건강의학과의원", "bold": false, "italic": true, "color": "#Values must be of type <class 'str'>", "fill": "#FFF0E8", "id": "c30"}, {"region": "서초", "sub": 1, "time": "11:30", "name": "연세정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c31"}, {"region": "서초", "sub": 2, "time": "11:30", "name": "이로정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c32"}, {"region": "서초", "sub": 3, "time": "11:30", "name": "서동수위드어스정신건강의학과의원", "bold": false, "italic": true, "color": "#333333", "fill": "#FFF0E8", "id": "c33"}, {"region": "동작", "sub": 1, "time": "12:00", "name": "나란히정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#E8F9F0", "id": "c34"}, {"region": "동작", "sub": 2, "time": "12:00", "name": "변재영정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c35"}, {"region": "관악", "sub": 1, "time": "12:00", "name": "연세훈정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#EBF2FF", "id": "c36"}, {"region": "관악", "sub": 2, "time": "12:00", "name": "가람정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c37"}, {"region": "서초", "sub": 0, "time": "12:00", "name": "디에프(DF)정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c38"}, {"region": "서초", "sub": 1, "time": "12:00", "name": "개운정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c39"}, {"region": "서초", "sub": 2, "time": "12:00", "name": "최명기정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#FFF0E8", "id": "c40"}, {"region": "서초", "sub": 3, "time": "12:00", "name": "연세손정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c41"}, {"region": "서초", "sub": 4, "time": "12:00", "name": "이수톡정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c42"}, {"region": "동작", "sub": 1, "time": "12:30", "name": "상도숲정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c43"}, {"region": "관악", "sub": 1, "time": "12:30", "name": "성모새봄정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c44"}, {"region": "서초", "sub": 0, "time": "12:30", "name": "행복한아이정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c45"}, {"region": "서초", "sub": 1, "time": "12:30", "name": "박진억", "bold": false, "italic": false, "color": "#000000", "fill": "#FFFF99", "id": "c46"}, {"region": "서초", "sub": 2, "time": "12:30", "name": "마인드온정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c47"}, {"region": "서초", "sub": 3, "time": "12:30", "name": "양재삼성정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c48"}, {"region": "서초", "sub": 4, "time": "12:30", "name": "늘평안정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c49"}, {"region": "동작", "sub": 0, "time": "13:00", "name": "나루정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c50"}, {"region": "동작", "sub": 1, "time": "13:00", "name": "마음봄정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c51"}, {"region": "동작", "sub": 2, "time": "13:00", "name": "박홍석정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c52"}, {"region": "관악", "sub": 2, "time": "13:00", "name": "안녕정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c53"}, {"region": "서초", "sub": 0, "time": "13:00", "name": "서초성모정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#FFF0E8", "id": "c54"}, {"region": "서초", "sub": 1, "time": "13:00", "name": "사당유연정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c55"}, {"region": "서초", "sub": 3, "time": "13:00", "name": "강남푸른정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c56"}, {"region": "동작", "sub": 1, "time": "13:30", "name": "가족사랑서울정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#E8F9F0", "id": "c57"}, {"region": "서초", "sub": 1, "time": "13:30", "name": "사당숲정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c58"}, {"region": "서초", "sub": 2, "time": "13:30", "name": "삼성공감정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c59"}, {"region": "서초", "sub": 3, "time": "13:30", "name": "당신의정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c60"}, {"region": "서초", "sub": 1, "time": "14:00", "name": "나눔정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c61"}, {"region": "동작", "sub": 1, "time": "14:30", "name": "마음봄정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c62"}, {"region": "관악", "sub": 1, "time": "14:30", "name": "소나무정신건강의학과의원", "bold": true, "italic": true, "color": "#Values must be of type <class 'str'>", "fill": "#EBF2FF", "id": "c63"}, {"region": "관악", "sub": 2, "time": "14:30", "name": "신림평온정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c64"}, {"region": "서초", "sub": 1, "time": "14:30", "name": "마음연정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#FFF0E8", "id": "c65"}, {"region": "관악", "sub": 1, "time": "15:00", "name": "나눔정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c66"}, {"region": "서초", "sub": 1, "time": "15:00", "name": "윌정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#FFF0E8", "id": "c67"}, {"region": "관악", "sub": 1, "time": "15:30", "name": "서울탑정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#EBF2FF", "id": "c68"}, {"region": "서초", "sub": 1, "time": "15:30", "name": "연세공감정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#E8F9F0", "id": "c69"}, {"region": "관악", "sub": 1, "time": "16:00", "name": "서울디딤정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c70"}, {"region": "서초", "sub": 1, "time": "16:00", "name": "이수정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c71"}, {"region": "관악", "sub": 1, "time": "16:30", "name": "맑음정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c72"}, {"region": "수원", "sub": 1, "time": "17:00", "name": "하모니정신건강의학과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#F5EEFF", "id": "c73"}, {"region": "동작", "sub": 1, "time": "17:00", "name": "나루정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#E8F9F0", "id": "c74"}, {"region": "관악", "sub": 1, "time": "17:00", "name": "마음가득정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c75"}, {"region": "서초", "sub": 1, "time": "17:00", "name": "연세휴정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c76"}, {"region": "서초", "sub": 2, "time": "17:00", "name": "서초정신건강의학과의원", "bold": true, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c77"}, {"region": "관악", "sub": 1, "time": "17:30", "name": "마나스정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#EBF2FF", "id": "c78"}, {"region": "수원", "sub": 0, "time": "18:00", "name": "좋은마음정신과의원", "bold": true, "italic": true, "color": "#B0B0B0", "fill": "#FFECEC", "id": "c79"}, {"region": "서초", "sub": 1, "time": "18:00", "name": "리마인드정신건강의학과의원", "bold": false, "italic": false, "color": "#333333", "fill": "#FFF0E8", "id": "c80"}];
+
+function schedLoad(){
+  if(state.schedCells && Array.isArray(state.schedCells)) return;
+  state.schedCells = S_INIT.map(c=>({...c}));
+}
+function schedSave(){ saveToStorage(); }
+function sToMin(t){const m=t.match(/(\d{1,2}):(\d{2})/);return m?+m[1]*60+ +m[2]:0;}
+function sIsGold(t){const m=sToMin(t);return (m>=510&&m<=630)||(m>=690&&m<=840)||(m>=990&&m<=1050);}
+
+function schedBuildHead(){
+  const h1=document.getElementById('s-h1'),h2=document.getElementById('s-h2');
+  h1.innerHTML='<th class="s-timeh" rowspan="2">시간</th>';h2.innerHTML='';
+  S_REGIONS.forEach(r=>{
+    const n=S_RNCOL[r];
+    h1.innerHTML+=`<th colspan="${n}" style="background:${S_RCOLOR[r]}">${r}</th>`;
+    for(let s=0;s<n;s++) h2.innerHTML+=`<th class="s-sub" style="background:${S_RCOLOR[r]}CC">${s+1}</th>`;
+  });
+}
+function schedStyleChip(chip,c){
+  const r=c.region;
+  chip.style.background=c.fill||S_RBG[r];
+  chip.style.color=c.color||S_RCOLOR[r];
+  chip.style.borderLeftColor=S_RCOLOR[r];
+  chip.style.fontWeight=c.bold?'700':'500';
+  chip.style.fontStyle=c.italic?'italic':'normal';
+}
+function schedRender(){
+  schedLoad();
+  const tb=document.getElementById('s-tbody');if(!tb)return;tb.innerHTML='';
+  S_TIMES.forEach(t=>{
+    const tr=document.createElement('tr');
+    const gold=sIsGold(t);
+    if(gold)tr.classList.add('s-gold-row');
+    tr.innerHTML=`<td class="s-time${gold?' s-gold':''}">${t}${gold?' ⭐':''}</td>`;
+    S_REGIONS.forEach(r=>{
+      for(let s=0;s<S_RNCOL[r];s++){
+        const td=document.createElement('td');
+        td.className='s-cell';td.dataset.region=r;td.dataset.sub=s;td.dataset.time=t;
+        state.schedCells.filter(c=>c.region===r&&c.sub===s&&c.time===t).forEach(c=>{
+          const chip=document.createElement('div');
+          chip.className='s-chip';chip.draggable=true;chip.dataset.id=c.id;
+          chip.textContent=c.name;schedStyleChip(chip,c);
+          chip.ondragstart=e=>{e.dataTransfer.setData('id',c.id);chip.classList.add('s-dragging');};
+          chip.ondragend=e=>chip.classList.remove('s-dragging');
+          chip.ondblclick=e=>{e.stopPropagation();schedEdit(c.id);};
+          chip.oncontextmenu=e=>{e.preventDefault();schedDelete(c.id);};
+          chip.addEventListener('touchstart',e=>schedTouchStart(e,c.id),{passive:true});
+          td.appendChild(chip);
+        });
+        td.ondragover=e=>{e.preventDefault();td.classList.add('s-dragover');};
+        td.ondragleave=e=>td.classList.remove('s-dragover');
+        td.ondrop=e=>{e.preventDefault();td.classList.remove('s-dragover');schedMove(e.dataTransfer.getData('id'),td);};
+        td.onclick=e=>{if(e.target===td)schedAdd(td);};
+        tr.appendChild(td);
+      }
+    });
+    tb.appendChild(tr);
+  });
+}
+function schedMove(id,td){
+  const c=state.schedCells.find(x=>x.id===id);
+  if(c){c.region=td.dataset.region;c.sub=+td.dataset.sub;c.time=td.dataset.time;schedSave();schedRender();}
+}
+function schedAdd(td){
+  const name=prompt('추가할 거래처명');
+  if(!name||!name.trim())return;
+  const r=td.dataset.region;
+  state.schedCells.push({id:'su'+Date.now(),region:r,sub:+td.dataset.sub,time:td.dataset.time,name:name.trim(),bold:false,italic:false,color:S_RCOLOR[r],fill:S_RBG[r]});
+  schedSave();schedRender();
+}
+function schedEdit(id){
+  const c=state.schedCells.find(x=>x.id===id);if(!c)return;
+  const name=prompt('거래처명 수정',c.name);
+  if(name===null)return;
+  if(!name.trim()){schedDelete(id,true);return;}
+  c.name=name.trim();schedSave();schedRender();
+}
+function schedEdit2(id,name){const c=state.schedCells.find(x=>x.id===id);if(c){c.name=name;schedSave();schedRender();}}
+function schedDelete(id,skip){
+  const c=state.schedCells.find(x=>x.id===id);if(!c)return;
+  if(skip||confirm(`"${c.name}" 삭제할까요?`)){state.schedCells=state.schedCells.filter(x=>x.id!==id);schedSave();schedRender();}
+}
+function schedReset(){if(confirm('스케줄을 처음 상태로 되돌릴까요?')){state.schedCells=S_INIT.map(c=>({...c}));schedSave();schedRender();}}
+function schedExport(){
+  const now=new Date();
+  const ts=now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+'_'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0');
+  const json=JSON.stringify({exportedAt:now.toISOString(),schedCells:state.schedCells},null,2);
+  const a=document.createElement('a');
+  a.href='data:application/json;charset=utf-8,'+encodeURIComponent(json);
+  a.download='방문스케줄_'+ts+'.json';document.body.appendChild(a);a.click();document.body.removeChild(a);
+  showToast('💾 스케줄 백업 완료!');
+}
+function schedImport(e){
+  const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(d.schedCells){state.schedCells=d.schedCells;schedSave();schedRender();showToast('📂 스케줄 불러오기 완료');}else showToast('❌ 스케줄 데이터 없음',true);}catch(err){showToast('❌ 형식 오류',true);}};
+  rd.readAsText(f);e.target.value='';
+}
+// 모바일 터치 드래그 (홀드 0.2초)
+let sHold=null,sLong=null,sReady=false,sStart=null,sOrig=null,sChip=null,sId=null;
+function schedTouchStart(e,id){
+  sId=id;sOrig=e.target;sReady=false;sStart={x:e.touches[0].clientX,y:e.touches[0].clientY};
+  sHold=setTimeout(()=>{sReady=true;sHold=null;if(navigator.vibrate)navigator.vibrate(30);
+    sChip=sOrig.cloneNode(true);sChip.classList.add('s-floating');sChip.style.width=sOrig.offsetWidth+'px';
+    document.body.appendChild(sChip);sOrig.classList.add('s-dragging');sMoveFloat(sStart.x,sStart.y);},200);
+  sLong=setTimeout(()=>{sLong=null;if(!sReady)return;
+    if(sChip){sChip.remove();sChip=null;}sReady=false;
+    document.removeEventListener('touchmove',schedTouchMove);document.removeEventListener('touchend',schedTouchEnd);
+    sOrig.classList.remove('s-dragging');
+    const act=prompt('수정하려면 새 이름, 삭제하려면 "삭제" 입력','');
+    if(act===null)return;if(act.trim()==='삭제')schedDelete(id,false);else if(act.trim())schedEdit2(id,act.trim());},650);
+  document.addEventListener('touchmove',schedTouchMove,{passive:false});
+  document.addEventListener('touchend',schedTouchEnd);
+}
+function sMoveFloat(x,y){if(sChip){sChip.style.left=(x-sChip.offsetWidth/2)+'px';sChip.style.top=(y-16)+'px';}}
+function schedTouchMove(e){
+  const t=e.touches[0];
+  if(!sReady){const dx=Math.abs(t.clientX-sStart.x),dy=Math.abs(t.clientY-sStart.y);
+    if(dx>8||dy>8){if(sHold){clearTimeout(sHold);sHold=null;}if(sLong){clearTimeout(sLong);sLong=null;}sCancel();}return;}
+  if(sLong){clearTimeout(sLong);sLong=null;}
+  e.preventDefault();sMoveFloat(t.clientX,t.clientY);
+  document.querySelectorAll('td.s-cell.s-dragover').forEach(td=>td.classList.remove('s-dragover'));
+  const el=document.elementFromPoint(t.clientX,t.clientY);const td=el&&el.closest('td.s-cell');if(td)td.classList.add('s-dragover');
+}
+function sCancel(){if(sChip){sChip.remove();sChip=null;}if(sOrig)sOrig.classList.remove('s-dragging');
+  document.querySelectorAll('td.s-cell.s-dragover').forEach(td=>td.classList.remove('s-dragover'));
+  document.removeEventListener('touchmove',schedTouchMove);document.removeEventListener('touchend',schedTouchEnd);sId=null;sOrig=null;}
+function schedTouchEnd(e){
+  if(sHold){clearTimeout(sHold);sHold=null;}if(sLong){clearTimeout(sLong);sLong=null;}
+  if(sReady){const t=e.changedTouches[0];const el=document.elementFromPoint(t.clientX,t.clientY);const td=el&&el.closest('td.s-cell');if(td&&sId)schedMove(sId,td);}
+  sReady=false;if(sChip){sChip.remove();sChip=null;}sId=null;sOrig=null;
+  document.querySelectorAll('.s-chip.s-dragging').forEach(c=>c.classList.remove('s-dragging'));
+  document.querySelectorAll('td.s-cell.s-dragover').forEach(td=>td.classList.remove('s-dragover'));
+  document.removeEventListener('touchmove',schedTouchMove);document.removeEventListener('touchend',schedTouchEnd);
+}
+
+
+schedBuildHead();
 buildRegionTabs();
 buildSortBar();
 buildTimeFilterBar();
