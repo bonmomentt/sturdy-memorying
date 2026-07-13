@@ -1889,8 +1889,15 @@ function isTargetName(name){
   return CLINICS.some(c=>{const t=state.dealTags[ckey(c)]||[];return c.name===name&&t.includes('타겟처');});
 }
 function schedMove(id,td){
-  const c=curCells().find(x=>x.id===id);
-  if(c){c.region=td.dataset.region;c.sub=+td.dataset.sub;c.time=td.dataset.time;schedSave();schedRender();}
+  const arr=curCells();
+  const i=arr.findIndex(x=>x.id===id);
+  if(i<0) return;
+  const c=arr[i];
+  c.region=td.dataset.region;c.sub=+td.dataset.sub;c.time=td.dataset.time;
+  // 옮긴 칩을 배열 맨 뒤로 → 해당 칸의 맨 아래에 표시
+  arr.splice(i,1);
+  arr.push(c);
+  schedSave();schedRender();
 }
 function schedAdd(td){
   const name=prompt('추가할 거래처명');
