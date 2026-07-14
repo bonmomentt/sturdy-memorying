@@ -1600,8 +1600,9 @@ function importJSON(event) {
   reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result);
-      if (data.dealStatus) Object.assign(state.dealStatus, data.dealStatus);
-      if (data.dealTags)   Object.assign(state.dealTags,   data.dealTags);
+      // 태그·거래상태는 병합하지 않고 백업 그대로 교체 (섞임 방지)
+      if (data.dealTags)   state.dealTags   = {...data.dealTags};
+      if (data.dealStatus) state.dealStatus = {...data.dealStatus};
       if (data.grade)      Object.assign(state.grade,      data.grade);
       if (data.sales)      Object.assign(state.sales,      data.sales);
       if (data.visited)    Object.assign(state.visited,    data.visited);
@@ -2026,7 +2027,6 @@ buildRegionTabs();
 buildSortBar();
 buildTimeFilterBar();
 render();
-restoreTargets();
 switchView('list');
 </script>
 <!-- 의원 추가 모달 -->
